@@ -37,9 +37,14 @@ Enable the Associated Domains capability with `webcredentials:socket.fi` after
 the SocketFi application is registered. Never commit real client IDs, production
 credentials, API keys or wallet secrets to this repository.
 
+In Xcode, select the `SocketFi` target, choose your Apple Development Team under
+Signing & Capabilities, and enable automatic signing. Register both bundle IDs
+(`fi.socket.socketfi.testnet` and `fi.socket.socketfi`) in the Apple Developer
+portal first; a provisioning profile cannot be created for an unregistered ID.
+
 The associated-domain file must be served by SocketFi at
 `https://socket.fi/.well-known/apple-app-site-association` and include both
-registered bundle identifiers. The Apple Team ID, bundle IDs and client IDs in
+registered bundle identifiers. The bundle IDs and client IDs in
 `project.yml` are placeholders until the applications are registered. A server
 payload template is included at `AssociatedDomains/apple-app-site-association.example.json`.
 
