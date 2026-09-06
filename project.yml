@@ -27,6 +27,7 @@ targets:
     sources:
       - path: Sources/SocketFiApp
     info:
+      path: Sources/SocketFiApp/Info.plist
       properties:
         CFBundleDisplayName: SocketFi
         SocketFiAPIBaseURL: $(SOCKETFI_API_BASE_URL)
