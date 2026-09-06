@@ -19,9 +19,7 @@ public struct SocketFiAPIClient: Sendable {
         bearerToken: String? = nil,
         response: Response.Type
     ) async throws -> Response {
-        guard let url = URL(string: path, relativeTo: configuration.apiBaseURL) else {
-            throw SocketFiNativeError.configuration("Invalid SocketFi API path: \(path)")
-        }
+        let url = configuration.apiBaseURL.appending(path: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

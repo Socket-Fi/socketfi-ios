@@ -42,7 +42,7 @@ public final class SocketFiNativeAccountClient {
             // These methods are deliberately visible in the app but are not
             // silently routed through the passkey endpoint.
             throw SocketFiNativeError.configuration(
-                "(method.rawValue) native signing is not enabled in this build."
+                "\(method.rawValue) native signing is not enabled in this build."
             )
         }
 
@@ -92,7 +92,8 @@ public final class SocketFiNativeAccountClient {
             )
         }
 
-        guard let payload = verified.session,
+        guard verified.verified == true,
+              let payload = verified.session,
               let address = payload.address?[configuration.network.rawValue],
               !payload.socketfiAccessToken.isEmpty else {
             throw SocketFiNativeError.invalidResponse
@@ -106,7 +107,7 @@ public final class SocketFiNativeAccountClient {
             ),
             accessToken: payload.socketfiAccessToken,
             expiresAt: TokenExpiry.date(from: payload.socketfiAccessToken)
-                ?? Date().addingTimeInterval(900)
+                ?? Date().addingTimeInterval(3_600)
         )
         try await sessionStore.save(session)
         return session
