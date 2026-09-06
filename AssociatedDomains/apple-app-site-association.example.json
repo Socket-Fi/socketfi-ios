@@ -1,8 +1,7 @@
 {
   "webcredentials": {
     "apps": [
-      "REPLACE_WITH_APPLE_TEAM_ID.fi.socket.socketfi",
-      "REPLACE_WITH_APPLE_TEAM_ID.fi.socket.socketfi.testnet"
+      "GC29BX444D.fi.socket.socketfi.testnet"
     ]
   }
 }
