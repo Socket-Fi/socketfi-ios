@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>SocketFiAPIBaseURL</key>
+	<string>https://api.socket.fi/</string>
+	<key>SocketFiClientID</key>
+	<string>REPLACE_WITH_REGISTERED_CLIENT_ID</string>
+	<key>SocketFiApplicationID</key>
+	<string>REPLACE_WITH_BUNDLE_IDENTIFIER</string>
+	<key>SocketFiNetwork</key>
+	<string>TESTNET</string>
+	<key>SocketFiRPID</key>
+	<string>socket.fi</string>
+</dict>
+</plist>
