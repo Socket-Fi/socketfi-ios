@@ -1,0 +1,39 @@
+# Xcode user and generated state
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.hmap
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# XcodeGen output is reproducible from project.yml
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Local signing and developer configuration
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+Secrets.xcconfig
+Local.xcconfig
+
+# Test/device artifacts
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.app
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# macOS/editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
