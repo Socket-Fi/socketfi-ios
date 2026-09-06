@@ -33,20 +33,33 @@ schemes with distinct values for:
 - `SocketFiNetwork`
 - `SocketFiRPID`
 
-Enable the Associated Domains capability with `webcredentials:socket.fi` after
-the SocketFi application is registered. Never commit real client IDs, production
-credentials, API keys or wallet secrets to this repository.
+The entitlements enable `webcredentials:socket.fi`. Testnet uses the public
+project identifier `sf_client_socketfi_ios_testnet`, bundle ID
+`fi.socket.socketfi.testnet`, and Apple team `GC29BX444D` (the same team as
+Paktly). Client IDs are public identifiers, not secrets. Never commit client
+secrets, production credentials, API keys or wallet secrets.
 
 In Xcode, select the `SocketFi` target, choose your Apple Development Team under
-Signing & Capabilities, and enable automatic signing. Register both bundle IDs
-(`fi.socket.socketfi.testnet` and `fi.socket.socketfi`) in the Apple Developer
-portal first; a provisioning profile cannot be created for an unregistered ID.
+Signing & Capabilities, and enable automatic signing. Your Apple account must
+belong to the configured team and have provisioning access for
+`fi.socket.socketfi.testnet`, with Associated Domains enabled.
 
 The associated-domain file must be served by SocketFi at
-`https://socket.fi/.well-known/apple-app-site-association` and include both
-registered bundle identifiers. The bundle IDs and client IDs in
-`project.yml` are placeholders until the applications are registered. A server
-payload template is included at `AssociatedDomains/apple-app-site-association.example.json`.
+`https://socket.fi/.well-known/apple-app-site-association` and include
+`GC29BX444D.fi.socket.socketfi.testnet`. The example in `AssociatedDomains/`
+contains only this app's entry; do not replace other apps' server entries.
+
+Before device testing, deploy the SDK API's updated
+`apps/api/configs/well-known-projects.json` and the marketing site's updated
+`public/.well-known/apple-app-site-association`. Pushing source alone does not
+confirm either deployment. Regenerate with `xcodegen generate`, open
+`SocketFi.xcodeproj`, and run using the Testnet configuration. Reinstall the app
+if iOS has cached an older domain association.
+
+Production remains unregistered and its client ID remains a placeholder. The
+Testnet registration enables native sign-in/sign-up only; its empty invocation
+allowlist does not authorize arbitrary contract calls. Transaction permissions
+require a separate reviewed configuration. No contract changes are required.
 
 The package currently targets iOS 17 because it depends on AuthenticationServices,
 UIKit presentation anchors and Swift concurrency. Build and test it on a real
