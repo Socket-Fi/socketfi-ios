@@ -85,6 +85,7 @@ struct SocketFiLoadingView: View {
 
 struct SocketFiSignInView: View {
     @ObservedObject var model: SocketFiAppModel
+    @State private var isWorking = false
 
     var body: some View {
         NavigationStack {
@@ -110,9 +111,34 @@ struct SocketFiSignInView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         ForEach(SocketFiSignInMethod.allCases, id: \.self) { method in
-                            NavigationLink(value: method) { SocketFiMethodCard(method: method) }
+                            if method == .passkey {
+                                VStack(spacing: 8) {
+                                    Button { authenticate(.passkey, .signIn) } label: {
+                                        SocketFiMethodCard(method: method)
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        authenticate(.passkey, .signUp)
+                                    } label: {
+                                        Label("Create account with passkey", systemImage: "plus.circle.fill")
+                                            .font(.subheadline.weight(.semibold))
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(Color.socketFiAccent)
+                                }
+                            } else {
+                                Button { authenticate(method, .signIn) } label: {
+                                    SocketFiMethodCard(method: method)
+                                }
                                 .buttonStyle(.plain)
+                            }
                         }
+                    }
+
+                    if isWorking {
+                        Label("Waiting for passkey approval…", systemImage: "faceid")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.socketFiAccent)
                     }
 
                     Label("Your keys stay with you. SocketFi never receives a private wallet key.", systemImage: "lock.shield.fill")
@@ -127,9 +153,14 @@ struct SocketFiSignInView: View {
             }
             .background(Color.socketFiBackground.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: SocketFiSignInMethod.self) { method in
-                SocketFiMethodAuthView(method: method, model: model)
-            }
+        }
+    }
+
+    private func authenticate(_ method: SocketFiSignInMethod, _ mode: SocketFiAuthMode) {
+        isWorking = true
+        Task {
+            await model.authenticate(method: method, mode: mode)
+            isWorking = false
         }
     }
 }
@@ -169,91 +200,6 @@ struct SocketFiMethodCard: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(method == .passkey ? Color.socketFiAccent.opacity(0.35) : Color.black.opacity(0.06), lineWidth: 1)
         }
-    }
-}
-
-struct SocketFiMethodAuthView: View {
-    let method: SocketFiSignInMethod
-    @ObservedObject var model: SocketFiAppModel
-    @State private var isWorking = false
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Image(systemName: method.icon)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 68, height: 68)
-                    .background(Color.socketFiAccent, in: RoundedRectangle(cornerRadius: 22))
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(method.displayName).font(.largeTitle.bold())
-                    Text(method.detail).foregroundStyle(.secondary)
-                }
-
-                if method == .passkey {
-                    VStack(spacing: 12) {
-                        SocketFiActionButton(
-                            title: isWorking ? "Waiting for approval…" : "Sign in with passkey",
-                            icon: "person.badge.key.fill",
-                            prominent: true
-                        ) { authenticate(.signIn) }
-                        SocketFiActionButton(
-                            title: "Create account with passkey",
-                            icon: "plus.circle.fill",
-                            prominent: false
-                        ) { authenticate(.signUp) }
-                    }
-                    .disabled(isWorking)
-                } else {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Native wallet connection is being finalized.", systemImage: "hammer.fill")
-                        Text("This option is visible so you can choose your preferred owner method. It will be enabled after its native wallet adapter and project-bound API flow pass production testing.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(Color.socketFiSurface, in: RoundedRectangle(cornerRadius: 18))
-                }
-
-                if let errorMessage = model.errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .padding(14)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                }
-            }
-            .padding(24)
-        }
-        .background(Color.socketFiBackground.ignoresSafeArea())
-        .navigationTitle(method.displayName)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func authenticate(_ mode: SocketFiAuthMode) {
-        isWorking = true
-        Task {
-            await model.authenticate(method: method, mode: mode)
-            isWorking = false
-        }
-    }
-}
-
-struct SocketFiActionButton: View {
-    let title: String
-    let icon: String
-    let prominent: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(prominent ? Color.socketFiAccent : Color.socketFiInk)
     }
 }
 
@@ -324,13 +270,6 @@ private extension SocketFiSignInMethod {
         }
     }
 
-    var detail: String {
-        switch self {
-        case .passkey: "Use the passkey stored on this device. SocketFi never sees your biometric data."
-        case .evmWallet: "Use an external EVM wallet as the owner of your SocketFi smart account."
-        case .stellarWallet: "Use an external Stellar wallet as the owner of your SocketFi smart account."
-        }
-    }
 }
 
 private extension Color {
