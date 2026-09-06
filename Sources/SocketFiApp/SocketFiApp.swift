@@ -23,6 +23,7 @@ final class SocketFiAppModel: ObservableObject {
 
     @Published var state: State = .loading
     @Published var errorMessage: String?
+    private var isAuthenticating = false
     private let client: SocketFiNativeAccountClient
 
     init(client: SocketFiNativeAccountClient) { self.client = client }
@@ -38,10 +39,17 @@ final class SocketFiAppModel: ObservableObject {
     }
 
     func authenticate(method: SocketFiSignInMethod, mode: SocketFiAuthMode) async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
         errorMessage = nil
         do {
             let session = try await client.authenticate(method: method, mode: mode)
             state = .signedIn(session)
+        } catch SocketFiNativeError.authenticationCancelled {
+            errorMessage = nil
+        } catch is CancellationError {
+            errorMessage = nil
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -85,120 +93,177 @@ struct SocketFiLoadingView: View {
 
 struct SocketFiSignInView: View {
     @ObservedObject var model: SocketFiAppModel
-    @State private var isWorking = false
+    @State private var showingPasskey = false
+    @State private var unavailableMethod: String?
 
     var body: some View {
-        NavigationStack {
+        GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Image(systemName: "circle.hexagongrid.fill")
-                            .font(.system(size: 34, weight: .semibold))
+                VStack(spacing: 36) {
+                    VStack(spacing: 16) {
+                        Image(systemName: "wallet.bifold.fill")
+                            .font(.system(size: 28, weight: .medium))
                             .foregroundStyle(.white)
                             .frame(width: 64, height: 64)
-                            .background(Color.socketFiAccent, in: RoundedRectangle(cornerRadius: 20))
-                        Text("Welcome to SocketFi")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color.socketFiInk)
-                        Text("A smarter way to hold, move and use your digital assets.")
-                            .font(.title3)
+                            .background(Color.socketFiInk, in: RoundedRectangle(cornerRadius: 20))
+                            .accessibilityHidden(true)
+                        Text("Continue to SocketFi")
+                            .font(.largeTitle.bold())
+                            .multilineTextAlignment(.center)
+                        Text("Your money. Your control.")
                             .foregroundStyle(.secondary)
                     }
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Choose how you want to continue").font(.headline)
-                        Text("Each account uses one owner method. You can change it later from Security.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        ForEach(SocketFiSignInMethod.allCases, id: \.self) { method in
-                            if method == .passkey {
-                                VStack(spacing: 8) {
-                                    Button { authenticate(.passkey, .signIn) } label: {
-                                        SocketFiMethodCard(method: method)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button {
-                                        authenticate(.passkey, .signUp)
-                                    } label: {
-                                        Label("Create account with passkey", systemImage: "plus.circle.fill")
-                                            .font(.subheadline.weight(.semibold))
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .foregroundStyle(Color.socketFiAccent)
-                                }
-                            } else {
-                                Button { authenticate(method, .signIn) } label: {
-                                    SocketFiMethodCard(method: method)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                    VStack(spacing: 12) {
+                        methodButton(.passkey) {
+                            model.errorMessage = nil
+                            showingPasskey = true
                         }
+                        methodButton(.stellarWallet) { unavailableMethod = "Stellar wallet" }
+                        methodButton(.evmWallet) { unavailableMethod = "EVM wallet" }
                     }
 
-                    if isWorking {
-                        Label("Waiting for passkey approval…", systemImage: "faceid")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.socketFiAccent)
-                    }
-
-                    Label("Your keys stay with you. SocketFi never receives a private wallet key.", systemImage: "lock.shield.fill")
+                    Label("Secured with your passkey or wallet.", systemImage: "lock.shield")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.socketFiSurface, in: RoundedRectangle(cornerRadius: 16))
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 32)
+                .frame(maxWidth: 440)
+                .padding(24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: geometry.size.height)
             }
-            .background(Color.socketFiBackground.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
+            .background(Color(uiColor: .systemBackground))
+        }
+        .sheet(isPresented: $showingPasskey) {
+            SocketFiPasskeySheet(model: model)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .alert("Coming soon", isPresented: Binding(
+            get: { unavailableMethod != nil },
+            set: { if !$0 { unavailableMethod = nil } }
+        )) {
+            Button("OK", role: .cancel) { unavailableMethod = nil }
+        } message: {
+            Text("\(unavailableMethod ?? "Wallet") sign-in isn't available yet. You can continue with a passkey.")
         }
     }
 
-    private func authenticate(_ method: SocketFiSignInMethod, _ mode: SocketFiAuthMode) {
-        isWorking = true
-        Task {
-            await model.authenticate(method: method, mode: mode)
-            isWorking = false
+    private func methodButton(
+        _ method: SocketFiSignInMethod,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: method.icon)
+                    .font(.title3)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                Text("Continue with \(method.displayName.lowercased())")
+                    .font(.body.weight(.semibold))
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.right")
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .foregroundStyle(method == .passkey ? Color.white : Color.primary)
+            .background(
+                method == .passkey ? Color.socketFiInk : Color(uiColor: .secondarySystemBackground),
+                in: RoundedRectangle(cornerRadius: 18)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 18))
         }
+        .buttonStyle(.plain)
+        .accessibilityHint(method == .passkey ? "Sign in or create an account using a passkey" : "View availability")
     }
 }
 
-struct SocketFiMethodCard: View {
-    let method: SocketFiSignInMethod
+struct SocketFiPasskeySheet: View {
+    @ObservedObject var model: SocketFiAppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode: SocketFiAuthMode = .signIn
+    @State private var isWorking = false
+    @State private var authTask: Task<Void, Never>?
+
+    private var isCreating: Bool { mode == .signUp }
 
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: method.icon)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(method == .passkey ? .white : Color.socketFiInk)
-                .frame(width: 48, height: 48)
-                .background(method == .passkey ? Color.socketFiAccent : Color.white, in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(method.displayName).font(.headline)
-                    if method == .passkey {
-                        Text("RECOMMENDED")
-                            .font(.system(size: 9, weight: .bold))
-                            .tracking(0.5)
-                            .foregroundStyle(Color.socketFiAccent)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Image(systemName: "person.badge.key.fill")
+                        .font(.title2)
+                        .foregroundStyle(Color.socketFiAccent)
+                        .accessibilityHidden(true)
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel("Close passkey sign-in")
+                    .disabled(isWorking)
                 }
-                Text(method.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(isCreating ? "Create your account" : "Welcome back")
+                        .font(.title.bold())
+                    Text(isCreating
+                         ? "Create a passkey to secure your SocketFi account."
+                         : "Use your SocketFi passkey to sign in.")
+                        .foregroundStyle(.secondary)
+                }
+
+                if let message = model.errorMessage {
+                    Label(message, systemImage: "exclamationmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Authentication error: \(message)")
+                }
+
+                VStack(spacing: 8) {
+                    Button(action: authenticate) {
+                        HStack(spacing: 10) {
+                            if isWorking { ProgressView().tint(.white) }
+                            else { Image(systemName: isCreating ? "plus.circle" : "person.badge.key") }
+                            Text(isWorking ? "Waiting for approval…" :
+                                 (isCreating ? "Create with passkey" : "Sign in with passkey"))
+                                .fontWeight(.semibold)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .foregroundStyle(.white)
+                        .background(Color.socketFiInk, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking)
+
+                    Button(isCreating ? "Sign in instead" : "Create account instead") {
+                        mode = isCreating ? .signIn : .signUp
+                        model.errorMessage = nil
+                    }
+                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity)
+                    .disabled(isWorking)
+                }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(.tertiary)
+            .padding(24)
         }
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 20))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(method == .passkey ? Color.socketFiAccent.opacity(0.35) : Color.black.opacity(0.06), lineWidth: 1)
+        .interactiveDismissDisabled(isWorking)
+        .onDisappear { authTask?.cancel() }
+    }
+
+    private func authenticate() {
+        guard !isWorking else { return }
+        isWorking = true
+        let requestedMode = mode
+        authTask = Task {
+            defer { isWorking = false }
+            await model.authenticate(method: .passkey, mode: requestedMode)
         }
     }
 }
