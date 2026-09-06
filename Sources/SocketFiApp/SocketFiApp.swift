@@ -220,11 +220,10 @@ struct SocketFiSignInView: View {
 struct SocketFiPasskeySheet: View {
     @ObservedObject var model: SocketFiAppModel
     @Environment(\.dismiss) private var dismiss
-    @State private var mode: SocketFiAuthMode = .signIn
-    @State private var isWorking = false
+    @State private var pendingMode: SocketFiAuthMode?
     @State private var authTask: Task<Void, Never>?
 
-    private var isCreating: Bool { mode == .signUp }
+    private var isWorking: Bool { pendingMode != nil }
 
     var body: some View {
         ScrollView {
@@ -248,12 +247,10 @@ struct SocketFiPasskeySheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(isCreating ? "Create your account" : "Welcome back")
+                    Text("Welcome back")
                         .font(.title2.weight(.semibold))
                         .tracking(-0.5)
-                    Text(isCreating
-                         ? "Create a passkey to secure your SocketFi account."
-                         : "Use your SocketFi passkey to sign in.")
+                    Text("Use your SocketFi passkey to sign in.")
                         .font(.subheadline)
                         .foregroundStyle(AccessStyle.secondary)
                 }
@@ -269,12 +266,11 @@ struct SocketFiPasskeySheet: View {
                 }
 
                 VStack(spacing: 8) {
-                    Button(action: authenticate) {
+                    Button { authenticate(.signIn) } label: {
                         HStack(spacing: 10) {
-                            if isWorking { ProgressView().tint(.white) }
-                            else { Image(systemName: isCreating ? "plus.circle" : "person.badge.key") }
-                            Text(isWorking ? "Waiting for approval…" :
-                                 (isCreating ? "Create with passkey" : "Sign in with passkey"))
+                            if pendingMode == .signIn { ProgressView().tint(.white) }
+                            else { Image(systemName: "person.badge.key") }
+                            Text(pendingMode == .signIn ? "Signing in…" : "Sign in with passkey")
                                 .fontWeight(.semibold)
                         }
                         .padding(18)
@@ -285,15 +281,22 @@ struct SocketFiPasskeySheet: View {
                     .buttonStyle(AccessButtonStyle())
                     .disabled(isWorking)
 
-                    Button(isCreating ? "Sign in instead" : "Create account instead") {
-                        mode = isCreating ? .signIn : .signUp
-                        model.errorMessage = nil
+                    Button { authenticate(.signUp) } label: {
+                        HStack(spacing: 8) {
+                            if pendingMode == .signUp {
+                                ProgressView().tint(AccessStyle.brand)
+                            }
+                            Text(pendingMode == .signUp ? "Creating account…" : "Create account instead")
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                     }
                     .frame(minHeight: 44)
                     .frame(maxWidth: .infinity)
                     .font(.subheadline.weight(.medium))
                     .tint(AccessStyle.brand)
                     .disabled(isWorking)
+                    .accessibilityHint("Starts native passkey creation for a new SocketFi account")
                 }
             }
             .padding(24)
@@ -303,13 +306,13 @@ struct SocketFiPasskeySheet: View {
         .onDisappear { authTask?.cancel() }
     }
 
-    private func authenticate() {
+    private func authenticate(_ mode: SocketFiAuthMode) {
         guard !isWorking else { return }
-        isWorking = true
-        let requestedMode = mode
+        pendingMode = mode
+        model.errorMessage = nil
         authTask = Task {
-            defer { isWorking = false }
-            await model.authenticate(method: .passkey, mode: requestedMode)
+            defer { pendingMode = nil }
+            await model.authenticate(method: .passkey, mode: mode)
         }
     }
 }
