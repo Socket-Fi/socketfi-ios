@@ -91,95 +91,103 @@ struct SocketFiLoadingView: View {
     }
 }
 
+/// Based on Paktly's original passkey-first WelcomeView (36960f2).
 struct SocketFiSignInView: View {
     @ObservedObject var model: SocketFiAppModel
     @State private var showingPasskey = false
     @State private var unavailableMethod: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var headlineSize = 48
 
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 28) {
-                    HStack(spacing: 9) {
-                        SocketFiBrandMark().fill(AccessStyle.text, style: FillStyle(eoFill: true))
-                            .frame(width: 26, height: 26)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        SocketFiBrandMark()
+                            .fill(AccessStyle.brand, style: FillStyle(eoFill: true))
+                            .frame(width: 30, height: 30)
                             .accessibilityHidden(true)
-                        Text("socketfi").font(.title3.weight(.bold)).tracking(-0.6)
-                        Spacer()
+                        Text("socketfi")
+                            .font(.title3.weight(.semibold))
+                            .tracking(-0.5)
                     }
 
-                    VStack(spacing: 0) {
-                        VStack(spacing: 14) {
-                            Image(systemName: "lock.shield.fill")
-                                .font(.system(size: 26, weight: .medium))
-                                .foregroundStyle(.white)
-                                .frame(width: 56, height: 56)
-                                .background(AccessStyle.ink, in: RoundedRectangle(cornerRadius: 20))
-                                .accessibilityHidden(true)
-                            Text("Continue to SocketFi")
-                                .font(.title2.weight(.semibold))
-                                .tracking(-0.6)
-                                .multilineTextAlignment(.center)
-                            Text("Create or access your smart account.")
-                                .font(.subheadline)
-                                .foregroundStyle(AccessStyle.secondary)
-                                .multilineTextAlignment(.center)
+                    Spacer(minLength: 48)
+
+                    Text("Your money.\nYour way.")
+                        .font(.system(size: headlineSize, weight: .bold, design: .rounded))
+                        .tracking(-1.7)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+
+                    Text("Save, send and explore.\nAll from your smart account.")
+                        .font(.title3)
+                        .foregroundStyle(AccessStyle.secondary)
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 20)
+
+                    Spacer(minLength: 56)
+
+                    Button {
+                        model.errorMessage = nil
+                        showingPasskey = true
+                    } label: {
+                        Label("Continue with passkey", systemImage: "person.badge.key")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                            .padding(.vertical, 17)
+                            .padding(.horizontal, 16)
+                            .foregroundStyle(.white)
+                            .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 18))
+                    }
+                    .buttonStyle(AccessButtonStyle())
+                    .accessibilityHint("Opens passkey sign-in, with an option to create an account")
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) {
+                            walletButton("Stellar wallet", icon: "globe")
+                            walletButton("EVM wallet", icon: "wallet.bifold")
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 32)
-                        .background(AccessStyle.headerGradient)
-
-                        Rectangle().fill(AccessStyle.border).frame(height: 1)
-
-                        VStack(spacing: 12) {
-                            methodButton(.passkey) {
-                                model.errorMessage = nil
-                                showingPasskey = true
-                            }
-                            methodButton(.stellarWallet) { unavailableMethod = "Stellar wallet" }
-                            methodButton(.evmWallet) { unavailableMethod = "EVM wallet" }
-
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "lock.shield")
-                                    .foregroundStyle(AccessStyle.security)
-                                    .accessibilityHidden(true)
-                                Text("Your private keys and recovery phrase stay yours.")
-                                    .foregroundStyle(AccessStyle.secondary)
-                            }
-                            .font(.footnote)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
-                            .background(AccessStyle.background, in: RoundedRectangle(cornerRadius: 14))
-                            .padding(.top, 8)
+                        VStack(spacing: 8) {
+                            walletButton("Stellar wallet", icon: "globe")
+                            walletButton("EVM wallet", icon: "wallet.bifold")
                         }
-                        .padding(20)
                     }
-                    .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 30))
-                    .clipShape(RoundedRectangle(cornerRadius: 30))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 30).stroke(AccessStyle.border, lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.045), radius: 24, x: 0, y: 10)
+                    .padding(.top, 12)
 
-                    Text("One account. More possibilities.")
+                    Text("No password or seed phrase required with passkeys.")
                         .font(.footnote)
                         .foregroundStyle(AccessStyle.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 18)
                 }
                 .foregroundStyle(AccessStyle.text)
-                .frame(maxWidth: 440)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 32)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 480)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 28)
                 .frame(minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity)
             }
-            .background(AccessStyle.background.ignoresSafeArea())
+            .background {
+                ZStack(alignment: .topTrailing) {
+                    AccessStyle.background
+                    Circle()
+                        .fill(AccessStyle.brand.opacity(0.045))
+                        .frame(width: 380, height: 380)
+                        .offset(x: 170, y: -190)
+                        .accessibilityHidden(true)
+                }
+                .clipped()
+                .ignoresSafeArea()
+            }
         }
         .sheet(isPresented: $showingPasskey) {
             SocketFiPasskeySheet(model: model)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-                .presentationCornerRadius(30)
+                .presentationCornerRadius(28)
         }
         .alert("Coming soon", isPresented: Binding(
             get: { unavailableMethod != nil },
@@ -191,55 +199,21 @@ struct SocketFiSignInView: View {
         }
     }
 
-    private func methodButton(
-        _ method: SocketFiSignInMethod,
-        action: @escaping () -> Void
-    ) -> some View {
-        let primary = method == .passkey
-        let tint = method == .stellarWallet ? AccessStyle.indigo : AccessStyle.violet
-        return Button(action: action) {
-            HStack(spacing: 12) {
-                Group {
-                    switch method {
-                    case .passkey: Image(systemName: "person.badge.key.fill")
-                    case .stellarWallet: Image(systemName: "globe")
-                    case .evmWallet: Image(systemName: "wallet.bifold")
-                    }
+    private func walletButton(_ title: String, icon: String) -> some View {
+        Button { unavailableMethod = title } label: {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .padding(.horizontal, 12)
+                .foregroundStyle(AccessStyle.secondary)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(AccessStyle.border, lineWidth: 1)
                 }
-                .font(.system(size: 21, weight: .medium))
-                .foregroundStyle(primary ? Color.white : tint)
-                .frame(width: 44, height: 44)
-                .background(primary ? Color.white.opacity(0.1) : tint.opacity(0.08),
-                            in: RoundedRectangle(cornerRadius: 14))
-                .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(primary ? "Continue with passkey" : "\(method.displayName)")
-                        .font(.subheadline.weight(.semibold))
-                    Text(primary ? "Fast and passwordless" : "Coming soon")
-                        .font(.caption)
-                        .foregroundStyle(primary ? Color.white.opacity(0.7) : AccessStyle.secondary)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(primary ? Color.white.opacity(0.6) : AccessStyle.secondary)
-                    .accessibilityHidden(true)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(primary ? Color.white : AccessStyle.text)
-            .background(primary ? AccessStyle.ink : AccessStyle.surface,
-                        in: RoundedRectangle(cornerRadius: 20))
-            .overlay {
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(primary ? Color.clear : AccessStyle.border, lineWidth: 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(AccessButtonStyle())
-        .accessibilityHint(primary ? "Sign in or create an account using a passkey" : "View availability")
+        .accessibilityHint("Coming soon. View availability.")
     }
 }
 
@@ -260,7 +234,7 @@ struct SocketFiPasskeySheet: View {
                         .font(.title2)
                         .foregroundStyle(.white)
                         .frame(width: 52, height: 52)
-                        .background(AccessStyle.ink, in: RoundedRectangle(cornerRadius: 18))
+                        .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 18))
                         .accessibilityHidden(true)
                     Spacer()
                     Button { dismiss() } label: {
@@ -306,7 +280,7 @@ struct SocketFiPasskeySheet: View {
                         .padding(18)
                         .frame(maxWidth: .infinity, minHeight: 56)
                         .foregroundStyle(.white)
-                        .background(AccessStyle.ink, in: RoundedRectangle(cornerRadius: 18))
+                        .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 18))
                     }
                     .buttonStyle(AccessButtonStyle())
                     .disabled(isWorking)
@@ -318,13 +292,13 @@ struct SocketFiPasskeySheet: View {
                     .frame(minHeight: 44)
                     .frame(maxWidth: .infinity)
                     .font(.subheadline.weight(.medium))
-                    .tint(AccessStyle.indigo)
+                    .tint(AccessStyle.brand)
                     .disabled(isWorking)
                 }
             }
             .padding(24)
         }
-        .background(AccessStyle.headerGradient.ignoresSafeArea())
+        .background(AccessStyle.surface.ignoresSafeArea())
         .interactiveDismissDisabled(isWorking)
         .onDisappear { authTask?.cancel() }
     }
