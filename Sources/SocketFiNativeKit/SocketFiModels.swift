@@ -5,7 +5,7 @@ public enum SocketFiNetwork: String, Codable, Sendable {
     case `public` = "PUBLIC"
 }
 
-public enum SocketFiSignInMethod: String, Codable, CaseIterable, Sendable {
+public enum SocketFiSignInMethod: String, Codable, CaseIterable, Hashable, Sendable {
     case passkey
     case evmWallet = "evm_wallet"
     case stellarWallet = "stellar_wallet"
