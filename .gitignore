@@ -11,6 +11,7 @@ build/
 Package.resolved
 
 # XcodeGen output is reproducible from project.yml
+*.xcodeproj/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
