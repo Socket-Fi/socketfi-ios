@@ -5,6 +5,9 @@ options:
     iOS: "17.0"
   developmentLanguage: en
   xcodeVersion: "16.0"
+configs:
+  Testnet: debug
+  Production: release
 settings:
   base:
     SWIFT_VERSION: "6.0"
