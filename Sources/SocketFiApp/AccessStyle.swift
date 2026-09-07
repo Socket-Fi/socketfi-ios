@@ -1,14 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// SocketFi colors with the spacing and contrast of Paktly's original welcome screen.
+/// Shared with socketfi-app's slate surfaces and indigo action palette.
 enum AccessStyle {
     static let brand = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.72, green: 0.64, blue: 1, alpha: 1)
-            : UIColor(red: 40 / 255, green: 0, blue: 170 / 255, alpha: 1)
+            ? UIColor(red: 0.65, green: 0.71, blue: 1, alpha: 1)
+            : UIColor(red: 49 / 255, green: 46 / 255, blue: 129 / 255, alpha: 1)
     })
-    static let primary = Color(red: 40 / 255, green: 0, blue: 170 / 255)
+    static let primary = Color(red: 49 / 255, green: 46 / 255, blue: 129 / 255)
     static let ink = Color(red: 2 / 255, green: 6 / 255, blue: 23 / 255)
     static let text = Color.primary
     static let secondary = Color(uiColor: .secondaryLabel)
@@ -16,7 +16,7 @@ enum AccessStyle {
     static let background = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.07, green: 0.07, blue: 0.095, alpha: 1)
-            : UIColor(red: 0.98, green: 0.975, blue: 0.99, alpha: 1)
+            : UIColor(red: 248 / 255, green: 250 / 255, blue: 252 / 255, alpha: 1)
     })
     static let border = Color(uiColor: .separator).opacity(0.3)
     static let indigo = Color.indigo

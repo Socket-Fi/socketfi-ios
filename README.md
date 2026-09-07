@@ -22,10 +22,11 @@ API protocol:
 5. Persist the session in a device-only Keychain item.
 6. Restore the account on app launch.
 
-The onboarding UI exposes passkey, EVM wallet and Stellar wallet choices. Only
-passkey is enabled by `SocketFiNativeAccountClient` at this stage; EVM and Stellar
-must use their own native signer adapters and hardened project-bound API routes.
-The UI deliberately does not route those methods through the passkey endpoint.
+Onboarding offers Create account and Sign in, using native passkeys. Its slate
+surfaces, indigo actions, and SocketFi mark follow the web app design system.
+Unavailable EVM and Stellar choices are omitted; those methods still require
+their own native signer adapters and hardened project-bound API routes.
+Check compact phones, large text, dark mode, and keyboard presentation on device.
 
 ## Xcode setup
 
