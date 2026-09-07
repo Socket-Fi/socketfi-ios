@@ -1,3 +1,12 @@
+<!-- Native account creation -->
+
+Create account opens a dedicated username screen with an editable suggestion of
+at most 16 characters. Spaces normalize to underscores. Validation follows the
+API's 3–30 character username rules; availability is checked on Continue before
+the passkey prompt. The supplied username becomes the passkey display identity;
+the API retains its existing UUID-suffixed internal identity. This requires no
+backend change. Test a taken username and retry with a new name on a device.
+
 # SocketFi iOS
 
 This is the native SwiftUI implementation of the SocketFi app. It is intentionally
