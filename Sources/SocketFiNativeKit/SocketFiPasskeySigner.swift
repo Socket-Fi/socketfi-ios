@@ -6,6 +6,7 @@ import UIKit
 public final class SocketFiPasskeySigner: NSObject, Sendable {
     private var continuation: CheckedContinuation<SocketFiCredential, Error>?
     private var authorizationController: ASAuthorizationController?
+    private var activeRequestID: UUID?
 
     public override init() {}
 
@@ -14,8 +15,9 @@ public final class SocketFiPasskeySigner: NSObject, Sendable {
         relyingPartyID: String,
         mode: SocketFiAuthMode
     ) async throws -> SocketFiCredential {
+        try Task.checkCancellation()
         guard continuation == nil else { throw SocketFiNativeError.authorizationBusy }
-        guard let challenge = Data(base64URLEncoded: options.challenge) else {
+        guard let challenge = Data(base64URLEncoded: options.challenge), !challenge.isEmpty else {
             throw SocketFiNativeError.invalidChallenge
         }
         let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
@@ -23,7 +25,8 @@ public final class SocketFiPasskeySigner: NSObject, Sendable {
         )
         let request: ASAuthorizationRequest
         if mode == .signUp {
-            guard let user = options.user, let userID = Data(base64URLEncoded: user.id) else {
+            guard let user = options.user, let userID = Data(base64URLEncoded: user.id),
+                  !userID.isEmpty, userID.count <= 64, !user.name.isEmpty else {
                 throw SocketFiNativeError.invalidChallenge
             }
             let registration = provider.createCredentialRegistrationRequest(
@@ -43,8 +46,15 @@ public final class SocketFiPasskeySigner: NSObject, Sendable {
             request = assertion
         }
 
+        let requestID = UUID()
+        activeRequestID = requestID
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    self.activeRequestID = nil
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 self.continuation = continuation
                 let controller = ASAuthorizationController(authorizationRequests: [request])
                 controller.delegate = self
@@ -54,6 +64,7 @@ public final class SocketFiPasskeySigner: NSObject, Sendable {
             }
         } onCancel: {
             Task { @MainActor [weak self] in
+                guard self?.activeRequestID == requestID else { return }
                 self?.cancelPendingAuthorization()
             }
         }
@@ -65,6 +76,7 @@ public final class SocketFiPasskeySigner: NSObject, Sendable {
     }
 
     private func finish(_ result: Result<SocketFiCredential, Error>) {
+        activeRequestID = nil
         let pending = continuation
         continuation = nil
         authorizationController = nil
@@ -77,6 +89,7 @@ extension SocketFiPasskeySigner: ASAuthorizationControllerDelegate {
         controller: ASAuthorizationController,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
+        guard controller === authorizationController else { return }
         if let registration = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration,
            let attestationObject = registration.rawAttestationObject {
             let id = registration.credentialID.base64URLEncodedString
@@ -111,6 +124,7 @@ extension SocketFiPasskeySigner: ASAuthorizationControllerDelegate {
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
+        guard controller === authorizationController else { return }
         let nsError = error as NSError
         if nsError.domain == ASAuthorizationError.errorDomain,
            nsError.code == ASAuthorizationError.canceled.rawValue {

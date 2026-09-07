@@ -6,6 +6,7 @@ public final class SocketFiNativeAccountClient {
     private let api: SocketFiAPIClient
     private let passkey: SocketFiPasskeySigner
     private let sessionStore: SocketFiSessionStore
+    private var isAuthenticating = false
 
     public init(
         configuration: SocketFiConfiguration,
@@ -16,7 +17,7 @@ public final class SocketFiNativeAccountClient {
         self.api = SocketFiAPIClient(configuration: configuration)
         self.passkey = passkey
         self.sessionStore = sessionStore ?? SocketFiSessionStore(
-            service: "fi.socket.socketfi.\(configuration.network.rawValue.lowercased())"
+            service: "fi.socket.socketfi.\(configuration.applicationID).\(configuration.clientID).\(configuration.network.rawValue).\(configuration.relyingPartyID)"
         )
     }
 
@@ -38,6 +39,10 @@ public final class SocketFiNativeAccountClient {
         mode: SocketFiAuthMode,
         username: String? = nil
     ) async throws -> SocketFiSession {
+        try Task.checkCancellation()
+        guard !isAuthenticating else { throw SocketFiNativeError.authorizationBusy }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
         guard method == .passkey else {
             // These methods are deliberately visible in the app but are not
             // silently routed through the passkey endpoint.
@@ -57,6 +62,11 @@ public final class SocketFiNativeAccountClient {
             ),
             response: NativeAuthStartResponse.self
         )
+        guard started.data.rpId == configuration.relyingPartyID,
+              !started.data.tempAccess.isEmpty else {
+            throw SocketFiNativeError.configuration("The server passkey domain does not match this app's configuration.")
+        }
+        try Task.checkCancellation()
         let optionsResponse: NativeAuthOptionsResponse = try await api.post(
             "oauth/init-auth",
             body: NativeAuthOptionsRequest(
@@ -78,7 +88,8 @@ public final class SocketFiNativeAccountClient {
             mode: mode
         )
 
-        if verified.createPopAccess == true, let followUpOptions = verified.options {
+        if verified.createPopAccess == true {
+            guard let followUpOptions = verified.options else { throw SocketFiNativeError.invalidResponse }
             let proof = try await passkey.perform(
                 options: followUpOptions,
                 relyingPartyID: started.data.rpId,
@@ -95,6 +106,7 @@ public final class SocketFiNativeAccountClient {
         guard verified.verified == true,
               let payload = verified.session,
               let address = payload.address?[configuration.network.rawValue],
+              !address.isEmpty,
               !payload.socketfiAccessToken.isEmpty else {
             throw SocketFiNativeError.invalidResponse
         }
@@ -109,6 +121,7 @@ public final class SocketFiNativeAccountClient {
             expiresAt: TokenExpiry.date(from: payload.socketfiAccessToken)
                 ?? Date().addingTimeInterval(3_600)
         )
+        try Task.checkCancellation()
         try await sessionStore.save(session)
         return session
     }

@@ -65,3 +65,19 @@ The package currently targets iOS 17 because it depends on AuthenticationService
 UIKit presentation anchors and Swift concurrency. Build and test it on a real
 device for passkey registration and assertion; simulator-only validation is not
 sufficient.
+
+## Passkey regression checks
+
+Native authentication validates the server RP ID against the app configuration,
+rejects incomplete challenges, and serializes authentication attempts. Cancelled
+Apple callbacks cannot complete a later request. API encoding and decoding stay
+on the main actor, with network I/O suspended asynchronously.
+
+Keychain sessions are scoped to application, project, network, and RP ID. Users
+with sessions stored by older builds must sign in once after this update.
+No API migration or hosted-auth change is required by these client fixes.
+
+Run the tests described in CONTRIBUTING.md on macOS. On a physical device verify
+new-account registration and wallet proof, returning-user sign-in, cancellation
+at both Apple prompts followed by retry, and relaunch/session restoration.
+Apple SDK compilation and physical-device validation cannot run on Linux.
