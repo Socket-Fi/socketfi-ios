@@ -16,12 +16,13 @@ struct SocketFiCreateAccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.system(size: 30, weight: .medium))
-                            .foregroundStyle(AccessStyle.brand)
+                        SocketFiBrandMark()
+                            .fill(AccessStyle.brand, style: FillStyle(eoFill: true))
+                            .frame(width: 36, height: 36)
+                            .padding(.bottom, 12)
                             .accessibilityHidden(true)
                         Text("Make it yours")
-                            .font(.largeTitle.bold())
+                            .font(.largeTitle.weight(.semibold))
                             .tracking(-0.8)
                         Text("Choose a username for your SocketFi account.")
                             .font(.body)
@@ -44,11 +45,14 @@ struct SocketFiCreateAccountView: View {
                         }
                         .padding(18)
                         .background(AccessStyle.background, in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border))
+                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(
+                            usernameFocused ? AccessStyle.brand : AccessStyle.border,
+                            lineWidth: usernameFocused ? 2 : 1
+                        ))
                         .disabled(isWorking)
 
                         Text(valid
-                             ? "You can change the suggestion. Availability is checked when you continue."
+                             ? "Make this username your own."
                              : "Use 3–30 letters, numbers, _ or -. Start and end with a letter or number.")
                             .font(.footnote)
                             .foregroundStyle(valid ? AccessStyle.secondary : Color.red)
@@ -72,18 +76,20 @@ struct SocketFiCreateAccountView: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 56)
                             .foregroundStyle(.white)
-                            .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 18))
+                            .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(AccessButtonStyle())
                         .disabled(!valid || isWorking)
                         .opacity(valid ? 1 : 0.5)
-                        Text("Your passkey securely signs you in. No password to remember.")
+                        Text("Next, you’ll secure your account with a passkey.")
                             .font(.footnote)
                             .foregroundStyle(AccessStyle.secondary)
                             .multilineTextAlignment(.center)
                     }
                 }
+                .frame(maxWidth: 480)
                 .padding(24)
+                .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(AccessStyle.surface)
