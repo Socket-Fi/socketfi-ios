@@ -53,7 +53,7 @@ targets:
         Testnet:
           PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi.testnet
           SOCKETFI_API_BASE_URL: https://api.socket.fi
-          SOCKETFI_CLIENT_ID: sf_client_socketfi_ios_testnet
+          SOCKETFI_CLIENT_ID: sf_client_live_e5fr319q79wpcojnx7s7zlhwu41w
           SOCKETFI_NETWORK: TESTNET
         Production:
           PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi

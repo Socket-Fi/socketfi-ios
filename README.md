@@ -34,7 +34,7 @@ schemes with distinct values for:
 - `SocketFiRPID`
 
 The entitlements enable `webcredentials:socket.fi`. Testnet uses the public
-project identifier `sf_client_socketfi_ios_testnet`, bundle ID
+Console-generated project identifier `sf_client_live_e5fr319q79wpcojnx7s7zlhwu41w`, bundle ID
 `fi.socket.socketfi.testnet`, and Apple team `GC29BX444D` (the same team as
 Paktly). Client IDs are public identifiers, not secrets. Never commit client
 secrets, production credentials, API keys or wallet secrets.
