@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 public struct SocketFiAPIClient: Sendable {
     private let configuration: SocketFiConfiguration
     private let session: URLSession
@@ -22,6 +23,7 @@ public struct SocketFiAPIClient: Sendable {
         let url = configuration.apiBaseURL.appending(path: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(configuration.clientID, forHTTPHeaderField: "X-SocketFi-Client-ID")
