@@ -38,13 +38,13 @@ final class SocketFiAppModel: ObservableObject {
         }
     }
 
-    func authenticate(method: SocketFiSignInMethod, mode: SocketFiAuthMode) async {
+    func authenticate(method: SocketFiSignInMethod, mode: SocketFiAuthMode, username: String? = nil) async {
         guard !isAuthenticating else { return }
         isAuthenticating = true
         defer { isAuthenticating = false }
         errorMessage = nil
         do {
-            let session = try await client.authenticate(method: method, mode: mode)
+            let session = try await client.authenticate(method: method, mode: mode, username: username)
             state = .signedIn(session)
         } catch SocketFiNativeError.authenticationCancelled {
             errorMessage = nil
@@ -222,6 +222,7 @@ struct SocketFiPasskeySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pendingMode: SocketFiAuthMode?
     @State private var authTask: Task<Void, Never>?
+    @State private var showingCreateAccount = false
 
     private var isWorking: Bool { pendingMode != nil }
 
@@ -281,7 +282,7 @@ struct SocketFiPasskeySheet: View {
                     .buttonStyle(AccessButtonStyle())
                     .disabled(isWorking)
 
-                    Button { authenticate(.signUp) } label: {
+                    Button { model.errorMessage = nil; showingCreateAccount = true } label: {
                         HStack(spacing: 8) {
                             if pendingMode == .signUp {
                                 ProgressView().tint(AccessStyle.brand)
@@ -296,7 +297,7 @@ struct SocketFiPasskeySheet: View {
                     .font(.subheadline.weight(.medium))
                     .tint(AccessStyle.brand)
                     .disabled(isWorking)
-                    .accessibilityHint("Starts native passkey creation for a new SocketFi account")
+                    .accessibilityHint("Choose a username and create your account")
                 }
             }
             .padding(24)
@@ -304,6 +305,12 @@ struct SocketFiPasskeySheet: View {
         .background(AccessStyle.surface.ignoresSafeArea())
         .interactiveDismissDisabled(isWorking)
         .onDisappear { authTask?.cancel() }
+        .sheet(isPresented: $showingCreateAccount) {
+            SocketFiCreateAccountView(model: model)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+        }
     }
 
     private func authenticate(_ mode: SocketFiAuthMode) {
