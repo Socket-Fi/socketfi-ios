@@ -132,18 +132,26 @@ public final class SocketFiNativeAccountClient {
 
     public func authorizePasskeyTransaction(
         _ request: SocketFiTransactionRequest,
+        onSubmission: @escaping @MainActor () -> Void = {},
         confirmReview: @escaping @MainActor (SocketFiTransactionReview) async -> Bool
     ) async throws -> SocketFiTransactionResult {
+        guard !isAuthenticating else { throw SocketFiNativeError.authorizationBusy }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        try Task.checkCancellation()
         guard let session = try await restoreSession() else {
             throw SocketFiNativeError.sessionUnavailable
         }
         guard request.review.network == configuration.network,
+              request.review.source == session.account.address,
               request.review.expiresAt > Date() else {
             throw SocketFiNativeError.invalidResponse
         }
         guard await confirmReview(request.review) else {
             throw SocketFiNativeError.transactionCancelled
         }
+        guard request.review.expiresAt > Date() else { throw SocketFiNativeError.invalidResponse }
+        try Task.checkCancellation()
 
         let started: NativeTransactionStartResponse = try await api.post(
             "api/native/transactions/start",
@@ -166,6 +174,9 @@ public final class SocketFiNativeAccountClient {
             ),
             response: NativeTransactionInitResponse.self
         )
+        guard request.review.expiresAt > Date() else {
+            throw SocketFiNativeError.configuration("The request expired while preparing. Go back for a fresh review.")
+        }
         let credential = try await passkey.perform(
             options: initialized.options,
             relyingPartyID: configuration.relyingPartyID,
@@ -174,15 +185,34 @@ public final class SocketFiNativeAccountClient {
         guard case let .assertion(assertion) = credential else {
             throw SocketFiNativeError.unsupportedCredential
         }
+        guard request.review.expiresAt > Date() else {
+            throw SocketFiNativeError.configuration("This request expired. Review a fresh request before signing again.")
+        }
+        try Task.checkCancellation()
         let path = request.submit
             ? "api/tx/transaction-intents/sign-and-submit"
             : "api/tx/transaction-intents/sign"
-        let result: NativeTransactionResult = try await api.post(
-            path,
-            body: NativeTransactionSignRequest(txSession: started.txSession, sigData: assertion),
-            response: NativeTransactionResult.self
-        )
-        guard result.success else { throw SocketFiNativeError.invalidResponse }
+        if request.submit { onSubmission() }
+        let result: NativeTransactionResult
+        do {
+            result = try await api.post(
+                path,
+                body: NativeTransactionSignRequest(txSession: started.txSession, sigData: assertion),
+                response: NativeTransactionResult.self
+            )
+        } catch {
+            // A timeout, decoding error, or even a server error can occur after broadcast.
+            // Never automatically retry an operation whose outcome is unknown.
+            if request.submit { throw SocketFiNativeError.submissionUncertain(hash: nil) }
+            throw error
+        }
+        guard result.success else {
+            if request.submit { throw SocketFiNativeError.submissionUncertain(hash: nil) }
+            throw SocketFiNativeError.invalidResponse
+        }
+        if request.submit {
+            return try SocketFiTransactionResult.confirmedSubmission(hash: result.data?.txHash, status: result.data?.status)
+        }
         return SocketFiTransactionResult(
             id: result.data?.txHash ?? started.txSession,
             submitted: request.submit
@@ -316,7 +346,7 @@ private struct NativeTransactionSignRequest: Encodable {
 }
 
 private struct NativeTransactionResult: Decodable {
-    struct Payload: Decodable { let txHash: String? }
+    struct Payload: Decodable { let txHash: String?; let status: String? }
     let success: Bool
     let data: Payload?
 }

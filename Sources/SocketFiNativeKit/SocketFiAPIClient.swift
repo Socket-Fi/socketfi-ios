@@ -32,6 +32,29 @@ public struct SocketFiAPIClient: Sendable {
         }
         request.httpBody = try encoder.encode(body)
 
+        return try await send(request, response: response)
+    }
+
+    public func get<Response: Decodable>(
+        _ path: String,
+        query: [String: String] = [:],
+        bearerToken: String? = nil,
+        response: Response.Type
+    ) async throws -> Response {
+        guard var components = URLComponents(url: configuration.apiBaseURL.appending(path: path), resolvingAgainstBaseURL: false) else {
+            throw SocketFiNativeError.invalidResponse
+        }
+        components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = components.url else { throw SocketFiNativeError.invalidResponse }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.timeoutInterval = 45
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(configuration.clientID, forHTTPHeaderField: "X-SocketFi-Client-ID")
+        if let bearerToken { request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization") }
+        return try await send(request, response: response)
+    }
+
+    private func send<Response: Decodable>(_ request: URLRequest, response: Response.Type) async throws -> Response {
         let (data, urlResponse) = try await session.data(for: request)
         guard let httpResponse = urlResponse as? HTTPURLResponse else {
             throw SocketFiNativeError.invalidResponse
@@ -41,7 +64,7 @@ public struct SocketFiAPIClient: Sendable {
             throw SocketFiNativeError.requestFailed(
                 status: httpResponse.statusCode,
                 code: error?.code,
-                message: error?.error ?? "SocketFi request failed."
+                message: error?.error ?? error?.message ?? "SocketFi request failed (\(httpResponse.statusCode))."
             )
         }
         do {
@@ -54,5 +77,6 @@ public struct SocketFiAPIClient: Sendable {
 
 private struct SocketFiAPIError: Decodable {
     let error: String?
+    let message: String?
     let code: String?
 }

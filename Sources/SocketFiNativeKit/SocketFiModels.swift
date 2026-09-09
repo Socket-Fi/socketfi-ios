@@ -95,6 +95,8 @@ public struct SocketFiTransactionReview: Codable, Equatable, Sendable {
     public let destination: String
     public let amount: String?
     public let fee: String?
+    public let minimumReceived: String?
+    public let slippage: String?
     public let expiresAt: Date
 
     public init(
@@ -104,6 +106,8 @@ public struct SocketFiTransactionReview: Codable, Equatable, Sendable {
         destination: String,
         amount: String? = nil,
         fee: String? = nil,
+        minimumReceived: String? = nil,
+        slippage: String? = nil,
         expiresAt: Date
     ) {
         self.title = title
@@ -112,6 +116,8 @@ public struct SocketFiTransactionReview: Codable, Equatable, Sendable {
         self.destination = destination
         self.amount = amount
         self.fee = fee
+        self.minimumReceived = minimumReceived
+        self.slippage = slippage
         self.expiresAt = expiresAt
     }
 }
@@ -146,6 +152,18 @@ public struct SocketFiTransactionResult: Sendable, Equatable {
         self.id = id
         self.submitted = submitted
     }
+
+    public static func confirmedSubmission(hash: String?, status: String?) throws -> SocketFiTransactionResult {
+        guard let hash, hash.count == 64,
+              hash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) || (65...70).contains($0) }) else {
+            throw SocketFiNativeError.submissionUncertain(hash: nil)
+        }
+        guard status == "SUCCESS" else {
+            if status == "FAILED" { throw SocketFiNativeError.transactionFailed(hash: hash) }
+            throw SocketFiNativeError.submissionUncertain(hash: hash)
+        }
+        return SocketFiTransactionResult(id: hash, submitted: true)
+    }
 }
 
 public enum SocketFiNativeError: LocalizedError, Sendable {
@@ -157,6 +175,8 @@ public enum SocketFiNativeError: LocalizedError, Sendable {
     case invalidResponse
     case unsupportedCredential
     case sessionUnavailable
+    case submissionUncertain(hash: String?)
+    case transactionFailed(hash: String)
     case requestFailed(status: Int, code: String?, message: String)
 
     public var errorDescription: String? {
@@ -169,6 +189,8 @@ public enum SocketFiNativeError: LocalizedError, Sendable {
         case .invalidResponse: "SocketFi returned an incomplete response."
         case .unsupportedCredential: "This device returned an unsupported passkey credential."
         case .sessionUnavailable: "Your SocketFi session has expired. Sign in again."
+        case .submissionUncertain: "Confirmation is unavailable. The transaction may have been submitted. Check your account activity before making another payment."
+        case .transactionFailed: "The network confirmed that this transaction failed. No successful transfer was reported."
         case let .requestFailed(_, _, message): message
         }
     }
