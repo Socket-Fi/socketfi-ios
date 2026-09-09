@@ -255,6 +255,7 @@ private struct SocketFiActivityView: View {
 private struct SocketFiAccountView: View {
     @ObservedObject var model: SocketFiWalletModel
     let signOut: () -> Void
+    @Environment(\.openURL) private var openURL
 
     @State private var copiedAddress = false
     @State private var copiedUsername = false
@@ -407,7 +408,9 @@ private struct SocketFiAccountView: View {
                         ) { UIApplication.shared.open(model.depositURL) }
                     }
 
-                    Link(destination: settingsWebURL) {
+                    Button {
+                        openURL(settingsWebURL)
+                    } label: {
                         Label("Open account settings (web)", systemImage: "person.text.rectangle")
                             .frame(maxWidth: .infinity, minHeight: 46)
                     }
@@ -535,7 +538,9 @@ private struct SocketFiAccountView: View {
 
     @ViewBuilder
     private func webSettingsAction(title: String, destination: URL, subtitle: String) -> some View {
-        Link(destination: destination) {
+        Button {
+            openURL(destination)
+        } label: {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
