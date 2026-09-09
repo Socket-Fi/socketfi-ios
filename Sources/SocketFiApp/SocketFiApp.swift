@@ -72,7 +72,7 @@ struct SocketFiRootView: View {
             case .loading: SocketFiLoadingView()
             case .signedOut: SocketFiSignInView(model: model)
             case let .signedIn(session):
-                SocketFiWalletView(session: session, configuration: model.configuration, signer: model.client) {
+                SocketFiWalletShell(session: session, configuration: model.configuration, signer: model.client) {
                     Task { await model.signOut() }
                 }.id(session.account.address + session.account.network.rawValue)
             }
@@ -309,33 +309,6 @@ struct SocketFiPasskeySheet: View {
             await model.authenticate(method: .passkey, mode: mode)
         }
     }
-}
-
-private extension SocketFiSignInMethod {
-    var displayName: String {
-        switch self {
-        case .passkey: "Passkey"
-        case .evmWallet: "EVM wallet"
-        case .stellarWallet: "Stellar wallet"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .passkey: "person.badge.key"
-        case .evmWallet: "link"
-        case .stellarWallet: "star"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .passkey: "Fast, private, protected by Face ID or Touch ID"
-        case .evmWallet: "Connect an external EVM wallet"
-        case .stellarWallet: "Connect an external Stellar wallet"
-        }
-    }
-
 }
 
 private extension Color {

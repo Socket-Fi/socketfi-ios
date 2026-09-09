@@ -4,66 +4,38 @@ import SocketFiNativeKit
 struct SocketFiWalletView: View {
     @StateObject private var model: SocketFiWalletModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var confirmSignOut = false
     @State private var confirmActivityChecked = false
     @State private var selectedToken: SocketFiToken?
-    let signOut: () -> Void
 
-    init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient, signOut: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
-        self.signOut = signOut
+    init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
+        self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
+    }
+
+    init(model: SocketFiWalletModel) {
+        _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    portfolio
-                    quickActions
-                    if let receipt = model.receipt { receiptCard(receipt) }
-                    if let error = model.error {
-                        WalletNotice(title: "Couldn't refresh your wallet", message: error, systemImage: "wifi.exclamationmark")
-                    }
-                    assets
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                portfolio
+                if let receipt = model.receipt { receiptCard(receipt) }
+                if let error = model.error {
+                    WalletNotice(title: "Couldn't refresh your wallet", message: error, systemImage: "wifi.exclamationmark")
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 20)
-                .padding(.bottom, 36)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
+                assets
             }
-            .background(AccessStyle.background.ignoresSafeArea())
-            .refreshable { await model.refresh() }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        SocketFiBrandMark().fill(AccessStyle.brand, style: FillStyle(eoFill: true)).frame(width: 26, height: 26)
-                        Text("SocketFi").font(.headline)
-                    }.accessibilityElement(children: .combine)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Account details", systemImage: "person.crop.square") { model.open(.address) }
-                        Link(destination: model.explorerURL) { Label("Account activity", systemImage: "arrow.up.right.square") }
-                        Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmSignOut = true }
-                    } label: {
-                        Image(systemName: "person.crop.circle").font(.title2).frame(width: 44, height: 44)
-                    }.disabled(model.busy).accessibilityLabel("Account menu")
-                }
-            }
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+            .padding(.bottom, 36)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
+        .background(AccessStyle.background.ignoresSafeArea())
+        .refreshable { await model.refresh() }
         .tint(AccessStyle.brand)
-        .task { await model.refresh() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && !model.busy { Task { await model.refresh() } }
-        }
-        .sheet(item: $model.action) { action in
-            if action == .deposit || action == .address {
-                SocketFiReceiveView(model: model, addressOnly: action == .address)
-            } else {
-                SocketFiWalletActionView(model: model, action: action)
-            }
         }
         .sheet(item: $selectedToken) { token in
             NavigationStack {
@@ -90,9 +62,6 @@ struct SocketFiWalletView: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedToken = nil } } }
             }.presentationDetents([.medium, .large])
         }
-        .confirmationDialog("Sign out of SocketFi?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive, action: signOut)
-        } message: { Text("Your account and passkey will remain available when you sign in again.") }
         .alert("Have you checked the transaction?", isPresented: $confirmActivityChecked) {
             Button("Keep checking", role: .cancel) { }
             Button("I've verified the outcome") { model.acknowledgeCheckedActivity() }
@@ -152,57 +121,6 @@ struct SocketFiWalletView: View {
         .padding(22)
         .background(AccessStyle.headerGradient, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(AccessStyle.border, lineWidth: 0.5))
-    }
-
-    private var quickActions: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Quick actions")
-                .font(.title3.weight(.semibold))
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ], spacing: 12) {
-                actionButton("Deposit", subtitle: "Open deposit", icon: "arrow.down.left", action: .deposit, emphasized: true)
-                actionButton("Reveal account", subtitle: "Copy wallet address", icon: "wallet.pass", action: .address)
-                actionButton("Withdraw", subtitle: "Send to another account", icon: "arrow.up.right", action: .withdraw)
-                actionButton("Swap", subtitle: "Exchange between assets", icon: "arrow.left.arrow.right", action: .swap)
-            }
-        }
-    }
-
-    private func actionButton(_ title: String, subtitle: String, icon: String, action: SocketFiWalletModel.Action, emphasized: Bool = false) -> some View {
-        Button { model.open(action) } label: {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill((emphasized ? AccessStyle.primary : AccessStyle.brand).opacity(emphasized ? 1 : 0.12))
-                        .frame(width: 42, height: 42)
-                    Image(systemName: icon)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(emphasized ? .white : AccessStyle.brand)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(16)
-            .background((emphasized ? AccessStyle.primary : AccessStyle.surface).opacity(emphasized ? 0.06 : 1), in: RoundedRectangle(cornerRadius: 18))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(emphasized ? AccessStyle.primary.opacity(0.25) : AccessStyle.border)
-            )
-        }.disabled(model.busy)
     }
 
     private var assets: some View {
