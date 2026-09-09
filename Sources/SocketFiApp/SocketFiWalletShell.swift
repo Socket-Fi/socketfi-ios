@@ -515,25 +515,32 @@ private struct SocketFiAccountView: View {
             }
 
             if !copyActions.isEmpty {
-                HStack {
-                    ForEach(copyActions, id: \.0) { item in
-                        Button {
-                            copy(item.1, copied: item.2)
-                        } label: {
-                            Label("Copy \(item.0)", systemImage: item.2.wrappedValue ? "checkmark" : "doc.on.doc")
-                                .font(.caption.weight(.semibold))
-                                .frame(maxWidth: .infinity, minHeight: 38)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 4)
-                    }
-                }
+                copyActionsRow(copyActions)
             }
-            .frame(maxWidth: .infinity)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func copyActionsRow(_ items: [(String, String, Binding<Bool>)]) -> some View {
+        HStack {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                let label = item.0
+                let value = item.1
+                let copiedBinding = item.2
+                Button {
+                    copy(value, copied: copiedBinding)
+                } label: {
+                    Label("Copy \(label)", systemImage: copiedBinding.wrappedValue ? "checkmark" : "doc.on.doc")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 38)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
