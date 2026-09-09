@@ -12,7 +12,7 @@ backend change. Test a taken username and retry with a new name on a device.
 This is the native SwiftUI implementation of the SocketFi app. It is intentionally
 separate from the React web app and from the customer integration reference.
 
-The first vertical slice is passkey-first and uses the existing native SocketFi
+Authentication is passkey-first and uses the existing native SocketFi
 API protocol:
 
 1. Start native auth.
@@ -67,9 +67,10 @@ confirm either deployment. Regenerate with `xcodegen generate`, open
 if iOS has cached an older domain association.
 
 Production remains unregistered and its client ID remains a placeholder. The
-Testnet registration enables native sign-in/sign-up only; its empty invocation
-allowlist does not authorize arbitrary contract calls. Transaction permissions
-require a separate reviewed configuration. No contract changes are required.
+Testnet registration enables native sign-in/sign-up and, after deploying the
+wallet registry update, transfers on the curated Testnet XLM and USDC contracts.
+Other tokens, swap routers, and PUBLIC access remain denied unless explicitly
+allowlisted. No contract changes are required.
 
 The package currently targets iOS 17 because it depends on AuthenticationServices,
 UIKit presentation anchors and Swift concurrency. Build and test it on a real
@@ -91,3 +92,30 @@ Run the tests described in CONTRIBUTING.md on macOS. On a physical device verify
 new-account registration and wallet proof, returning-user sign-in, cancellation
 at both Apple prompts followed by retry, and relaunch/session restoration.
 Apple SDK compilation and physical-device validation cannot run on Linux.
+
+## Wallet
+
+The wallet uses the web application's slate/indigo styling with live watched-token
+balances, estimated USD values, pull-to-refresh, a balance privacy toggle, and
+token contract details. Missing prices or balances appear as unavailable, not zero.
+The existing access token supplies the internal username for balance lookup;
+reading that claim is metadata handling, not an authorization decision.
+
+Deposit and account details provide QR codes, copy/share actions, and the same
+network-specific public deposit page as `socketfi-app`. Depositing from another
+wallet happens on that page; the native app does not hold the sending wallet's keys.
+Withdrawals accept checksum-validated Stellar G/C addresses. Memo-dependent
+exchange deposits are unsupported and require a different receiving route.
+
+Withdrawal and Aquarius swap requests use exact atomic strings, explicit review,
+the existing native passkey transaction endpoints, and the API's contract/function
+allowlist. A swap review includes input, estimated output, minimum received,
+slippage, network, token/router contracts, and quote expiry. A successful HTTP
+response alone is insufficient: only a valid transaction hash and RPC `SUCCESS`
+are shown as confirmed. No automatic financial retries occur. Unknown submission
+outcomes are remembered per project/account/network across relaunch and require
+the user to check activity before initiating another payment.
+
+Deployment and validation requirements are in [docs/wallet.md](docs/wallet.md).
+The wallet is implemented but is not release-certified until the macOS build,
+tests, physical-device signing, and Testnet transaction checks pass.

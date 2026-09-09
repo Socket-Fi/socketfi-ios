@@ -8,7 +8,7 @@ struct SocketFiApp: App {
     init() {
         let configuration = SocketFiConfiguration.fromInfoPlist()
         _model = StateObject(wrappedValue: SocketFiAppModel(
-            client: SocketFiNativeAccountClient(configuration: configuration)
+            client: SocketFiNativeAccountClient(configuration: configuration), configuration: configuration
         ))
     }
 
@@ -24,9 +24,13 @@ final class SocketFiAppModel: ObservableObject {
     @Published var state: State = .loading
     @Published var errorMessage: String?
     private var isAuthenticating = false
-    private let client: SocketFiNativeAccountClient
+    let client: SocketFiNativeAccountClient
+    let configuration: SocketFiConfiguration
 
-    init(client: SocketFiNativeAccountClient) { self.client = client }
+    init(client: SocketFiNativeAccountClient, configuration: SocketFiConfiguration) {
+        self.client = client
+        self.configuration = configuration
+    }
 
     func restore() async {
         do {
@@ -67,7 +71,10 @@ struct SocketFiRootView: View {
             switch model.state {
             case .loading: SocketFiLoadingView()
             case .signedOut: SocketFiSignInView(model: model)
-            case let .signedIn(session): SocketFiHomeView(session: session) { Task { await model.signOut() } }
+            case let .signedIn(session):
+                SocketFiWalletView(session: session, configuration: model.configuration, signer: model.client) {
+                    Task { await model.signOut() }
+                }.id(session.account.address + session.account.network.rawValue)
             }
         }
         .task { await model.restore() }
@@ -301,48 +308,6 @@ struct SocketFiPasskeySheet: View {
             defer { pendingMode = nil }
             await model.authenticate(method: .passkey, mode: mode)
         }
-    }
-}
-
-struct SocketFiHomeView: View {
-    let session: SocketFiSession
-    let signOut: () -> Void
-
-    var body: some View {
-        TabView {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Good to see you").font(.largeTitle.bold())
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Smart account").font(.subheadline).foregroundStyle(.secondary)
-                            Text(session.account.address)
-                                .font(.headline.monospaced())
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                            Label(session.account.network.rawValue, systemImage: "network")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Color.socketFiAccent)
-                        }
-                        .padding(20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 24))
-                    }
-                    .padding(24)
-                }
-                .background(Color.socketFiBackground.ignoresSafeArea())
-                .navigationTitle("Home")
-            }
-            .tabItem { Label("Home", systemImage: "house.fill") }
-            Text("Explore").tabItem { Label("Explore", systemImage: "square.grid.2x2.fill") }
-            Text("Activity").tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
-            NavigationStack {
-                List { Button("Sign out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive, action: signOut) }
-                    .navigationTitle("Settings")
-            }
-            .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-        }
-        .tint(Color.socketFiAccent)
     }
 }
 

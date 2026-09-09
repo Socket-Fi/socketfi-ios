@@ -79,3 +79,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi.tests
+        GENERATE_INFOPLIST_FILE: YES

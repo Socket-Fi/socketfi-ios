@@ -2,8 +2,8 @@ import SwiftUI
 import SocketFiNativeKit
 
 /// The approval surface that must be shown immediately before a passkey
-/// assertion. It intentionally presents the server-provided review model and
-/// does not derive financial meaning from an opaque transaction payload.
+/// assertion. The caller must bind the review to the exact transaction args;
+/// the native API does not currently return a human-readable review model.
 struct SocketFiTransactionReviewView: View {
     let review: SocketFiTransactionReview
     let onApprove: () -> Void
@@ -27,6 +27,12 @@ struct SocketFiTransactionReviewView: View {
                     Section("Estimated fee") {
                         Text(fee)
                     }
+                }
+                if let minimum = review.minimumReceived {
+                    Section("Minimum received") { Text(minimum) }
+                }
+                if let slippage = review.slippage {
+                    Section("Slippage tolerance") { Text(slippage) }
                 }
                 Section {
                     Text("This approval uses your SocketFi owner passkey. Review the destination and amount carefully before continuing.")
