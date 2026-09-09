@@ -443,8 +443,8 @@ private struct SocketFiAccountView: View {
             detailRow("Contract ID", model.session.account.address, copyValue: model.session.account.address, copied: $copiedAddress)
             Divider().padding(.vertical, 4)
             HStack(spacing: 8) {
-                AccountMetaPill("Network", value: model.networkLabel)
-                AccountMetaPill("Signer", value: model.session.account.signer == .passkey ? "Passkey" : model.session.account.signer == .evmWallet ? "EVM Wallet" : "Stellar Wallet")
+                accountMetaPill("Network", value: model.networkLabel)
+                accountMetaPill("Signer", value: model.session.account.signer == .passkey ? "Passkey" : model.session.account.signer == .evmWallet ? "EVM Wallet" : "Stellar Wallet")
             }
             Divider().padding(.vertical, 4)
             detailRow("Session expires", formattedSessionExpiry)
