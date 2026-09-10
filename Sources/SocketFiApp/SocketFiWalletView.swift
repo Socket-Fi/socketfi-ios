@@ -1,11 +1,13 @@
 import SwiftUI
 import SocketFiNativeKit
+import UIKit
 
 struct SocketFiWalletView: View {
     @StateObject private var model: SocketFiWalletModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmActivityChecked = false
     @State private var selectedToken: SocketFiToken?
+    @State private var copiedAddress = false
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
@@ -103,20 +105,30 @@ struct SocketFiWalletView: View {
 
                 Divider().frame(height: 34)
 
-                Text("Your smart account")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button { model.open(.address) } label: {
-                    HStack(spacing: 6) {
-                        Text(WalletFormat.shortAddress(model.session.account.address)).monospaced()
-                        Image(systemName: "doc.on.doc")
+                HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "eye")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, height: 16)
+                        Text(WalletFormat.shortAddress(model.session.account.address))
+                            .font(.footnote.weight(.medium))
+                            .monospaced()
+                            .lineLimit(1)
+                        Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
+                            Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .font(.footnote.weight(.medium))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial, in: Capsule())
-                }.buttonStyle(.plain)
-                    .accessibilityLabel("Reveal account")
+                    .accessibilityLabel("Contract account")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .padding(22)
@@ -168,7 +180,7 @@ struct SocketFiWalletView: View {
             walletAction(title: "Deposit", icon: "arrow.down.left", action: .deposit)
             walletAction(title: "Withdraw", icon: "arrow.up.right", action: .withdraw)
             walletAction(title: "Swap", icon: "arrow.left.arrow.right", action: .swap)
-            walletAction(title: "Address", icon: "doc.on.doc", action: .address)
+            walletAction(title: "Delegations", icon: "wallet.pass", action: .delegation)
         }
     }
 
@@ -178,6 +190,7 @@ struct SocketFiWalletView: View {
         case .withdraw: "SocketFiSend"
         case .swap: "SocketFiSwap"
         case .address: "SocketFiWallet"
+        case .delegation: "SocketFiWallet"
         }
 
         return Button { model.open(action) } label: {
@@ -249,6 +262,15 @@ struct SocketFiWalletView: View {
             }
         }
         .padding(16)
+    }
+
+    private func copy(_ value: String, copied: Binding<Bool>) {
+        UIPasteboard.general.string = value
+        copied.wrappedValue = true
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            copied.wrappedValue = false
+        }
     }
 }
 
