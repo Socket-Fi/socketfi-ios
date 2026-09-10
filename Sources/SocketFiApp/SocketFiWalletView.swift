@@ -14,6 +14,31 @@ struct SocketFiWalletView: View {
     @State private var contractInput = ""
     @State private var contractInputError = ""
     @State private var contractPreviewState: ContractPreviewState = .idle
+    @State private var activeWalletBannerIndex = 0
+
+    private let walletBanners: [WalletPromoBanner] = [
+        WalletPromoBanner(
+            icon: "sparkles",
+            title: "Smart account with policy controls",
+            subtitle: "Use passkeys, delegations, and policy rules to spend safely.",
+            ctaTitle: "Manage policies",
+            action: .delegation
+        ),
+        WalletPromoBanner(
+            icon: "arrow.left.arrow.right.circle.fill",
+            title: "Token swaps in one tap",
+            subtitle: "Swap directly from your smart account with connected liquidity providers.",
+            ctaTitle: "Try swap",
+            action: .swap
+        ),
+        WalletPromoBanner(
+            icon: "wallet.pass.fill",
+            title: "Track more assets",
+            subtitle: "Add custom asset contracts and keep your wallet complete.",
+            ctaTitle: "Open watchlist",
+            action: .openQuickSettings
+        ),
+    ]
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
@@ -40,6 +65,21 @@ struct SocketFiWalletView: View {
             .padding(.bottom, 36)
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button { showQuickSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(AccessStyle.surface, in: Circle())
+                    .overlay(Circle().stroke(AccessStyle.border, lineWidth: 0.5))
+                    .foregroundStyle(AccessStyle.brand)
+                    .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+            .padding(.trailing, 12)
+            .accessibilityLabel("Wallet settings")
         }
         .background(AccessStyle.background.ignoresSafeArea())
         .refreshable { await model.refresh() }
@@ -88,37 +128,98 @@ struct SocketFiWalletView: View {
     }
 
     private var walletBanner: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                SocketFiBrandMark()
-                    .frame(width: 36, height: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("SocketFi")
-                        .font(.headline.weight(.semibold))
-                    Text("Secure smart-account wallet")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            TabView(selection: $activeWalletBannerIndex) {
+                ForEach(Array(walletBanners.enumerated()), id: \.element.id) { index, banner in
+                    Button {
+                        executeWalletBannerAction(banner.action)
+                    } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color.white.opacity(0.28), Color.white.opacity(0.06)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 44, height: 44)
+                                Image(systemName: banner.icon)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                            .frame(width: 44, height: 44)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(banner.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text(banner.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.white.opacity(0.9))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            Spacer(minLength: 2)
+                            HStack(spacing: 6) {
+                                Text(banner.ctaTitle)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.95))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.white.opacity(0.18), in: Capsule())
+                        }
+                        .padding(14)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        LinearGradient(
+                            colors: [Color(uiColor: UIColor.systemIndigo), Color(uiColor: UIColor.systemTeal)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 16)
+                    )
+                    .tag(index)
                 }
-                Spacer()
-                Button { showQuickSettings = true } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 38, height: 38)
-                        .background(AccessStyle.surface, in: Circle())
-                        .foregroundStyle(AccessStyle.brand)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Wallet settings")
             }
-            HStack(spacing: 8) {
-                TagPill(text: "Passkeys")
-                TagPill(text: "Policy controls")
-                TagPill(text: "Swaps")
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 90)
+
+            if walletBanners.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(walletBanners.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(index == activeWalletBannerIndex ? AccessStyle.brand : Color(.systemGray4))
+                            .frame(width: index == activeWalletBannerIndex ? 18 : 6, height: 6)
+                    }
+                }
+                .padding(.leading, 4)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
+        .padding(.top, 2)
+    }
+
+    private func executeWalletBannerAction(_ action: WalletBannerAction) {
+        switch action {
+        case .none:
+            break
+        case .delegation:
+            model.open(.delegation)
+        case .swap:
+            model.open(.swap)
+        case .deposit:
+            model.open(.deposit)
+        case .openQuickSettings:
+            showQuickSettings = true
+        }
     }
 
     private var portfolio: some View {
@@ -743,18 +844,21 @@ private struct WalletDisplayToken: Identifiable, Hashable {
     }
 }
 
-private struct TagPill: View {
-    let text: String
+private struct WalletPromoBanner: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    let subtitle: String
+    let ctaTitle: String
+    let action: WalletBannerAction
+}
 
-    var body: some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(AccessStyle.background, in: Capsule())
-            .overlay(Capsule().stroke(AccessStyle.border, lineWidth: 0.5))
-            .foregroundStyle(.primary)
-    }
+private enum WalletBannerAction {
+    case none
+    case delegation
+    case swap
+    case deposit
+    case openQuickSettings
 }
 
 struct WalletTokenIcon: View {
