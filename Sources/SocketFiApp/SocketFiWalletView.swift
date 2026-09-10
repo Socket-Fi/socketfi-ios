@@ -180,7 +180,7 @@ struct SocketFiWalletView: View {
         case .address: "SocketFiWallet"
         }
 
-        Button { model.open(action) } label: {
+        return Button { model.open(action) } label: {
             VStack(spacing: 7) {
                 Group {
                     if let assetName {
