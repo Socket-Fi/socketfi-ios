@@ -3,15 +3,15 @@ import SocketFiNativeKit
 import UIKit
 
 private enum SocketFiWalletTab: String, Hashable, CaseIterable, Identifiable {
-    case wallet, transfer, activity, account
+    case wallet, tokens, activity, account
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .wallet: "Wallet"
-        case .transfer: "Transfer"
-        case .activity: "Activity"
+        case .tokens: "Tokens"
+        case .activity: "Transactions"
         case .account: "Account"
         }
     }
@@ -19,7 +19,7 @@ private enum SocketFiWalletTab: String, Hashable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .wallet: "wallet.pass"
-        case .transfer: "arrow.left.arrow.right"
+        case .tokens: "circle.grid.2x2"
         case .activity: "clock.arrow.circlepath"
         case .account: "person.crop.circle"
         }
@@ -48,17 +48,17 @@ struct SocketFiWalletShell: View {
             .tag(SocketFiWalletTab.wallet)
 
             NavigationStack {
-                SocketFiTransfersView(model: model)
+                SocketFiTokensView(model: model)
                     .toolbarRole(.editor)
-                    .navigationTitle("Transfer")
+                    .navigationTitle("Tokens")
             }
-            .tabItem { Label(SocketFiWalletTab.transfer.title, systemImage: SocketFiWalletTab.transfer.icon) }
-            .tag(SocketFiWalletTab.transfer)
+            .tabItem { Label(SocketFiWalletTab.tokens.title, systemImage: SocketFiWalletTab.tokens.icon) }
+            .tag(SocketFiWalletTab.tokens)
 
             NavigationStack {
                 SocketFiActivityView(model: model)
                     .toolbarRole(.editor)
-                    .navigationTitle("Activity")
+                    .navigationTitle("Transactions")
             }
             .tabItem { Label(SocketFiWalletTab.activity.title, systemImage: SocketFiWalletTab.activity.icon) }
             .tag(SocketFiWalletTab.activity)
@@ -72,6 +72,8 @@ struct SocketFiWalletShell: View {
             .tag(SocketFiWalletTab.account)
         }
         .tint(AccessStyle.brand)
+        .toolbarBackground(AccessStyle.surface, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .onAppear {
             if !didAppear {
                 didAppear = true
@@ -90,6 +92,86 @@ struct SocketFiWalletShell: View {
             } else {
                 SocketFiWalletActionView(model: model, action: action)
             }
+        }
+    }
+}
+
+private struct SocketFiTokensView: View {
+    @ObservedObject var model: SocketFiWalletModel
+    @State private var selectedToken: SocketFiToken?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                WalletSectionHeader(title: "Your tokens", subtitle: "Balances held by your smart account.")
+
+                if model.loading && model.snapshot == nil {
+                    ProgressView("Loading tokens…")
+                        .frame(maxWidth: .infinity, minHeight: 72)
+                        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+                } else if model.tokens.isEmpty {
+                    ContentUnavailableView("No tokens yet", systemImage: "circle.grid.2x2", description: Text("Deposit funds to see your assets here."))
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(model.tokens) { token in
+                            Button { selectedToken = token } label: {
+                                HStack(spacing: 12) {
+                                    WalletTokenIcon(symbol: token.symbol)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(token.symbol).font(.body.weight(.semibold))
+                                        Text(model.hideBalances ? "••••" : token.balanceText)
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 8)
+                                    VStack(alignment: .trailing, spacing: 3) {
+                                        Text(model.hideBalances ? "••••" : WalletFormat.fiat(token.estimatedValue))
+                                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                                        Text("View details").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(14)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            if token.id != model.tokens.last?.id { Divider().padding(.leading, 70) }
+                        }
+                    }
+                    .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(AccessStyle.border, lineWidth: 0.5))
+                }
+
+                WalletNotice(title: "Balances update from the network", message: "Token symbols are not proof of an issuer. Verify the contract address before receiving unfamiliar assets.")
+            }
+            .padding(16)
+        }
+        .background(AccessStyle.background.ignoresSafeArea())
+        .refreshable { await model.refresh() }
+        .sheet(item: $selectedToken) { token in
+            NavigationStack {
+                List {
+                    Section {
+                        HStack(spacing: 14) {
+                            WalletTokenIcon(symbol: token.symbol)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(token.symbol).font(.headline)
+                                Text(model.hideBalances ? "••••" : "\(token.balanceText) \(token.symbol)")
+                                    .font(.title3).monospacedDigit()
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    Section("Token details") {
+                        LabeledContent("Network", value: model.networkLabel)
+                        Text(token.contract).font(.footnote.monospaced()).textSelection(.enabled)
+                    }
+                }
+                .navigationTitle(token.symbol)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedToken = nil } } }
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 }

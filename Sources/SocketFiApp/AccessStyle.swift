@@ -16,7 +16,7 @@ enum AccessStyle {
     static let background = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.07, green: 0.07, blue: 0.095, alpha: 1)
-            : UIColor(red: 248 / 255, green: 250 / 255, blue: 252 / 255, alpha: 1)
+            : UIColor(red: 241 / 255, green: 245 / 255, blue: 249 / 255, alpha: 1)
     })
     static let border = Color(uiColor: .separator).opacity(0.3)
     static let indigo = Color.indigo
