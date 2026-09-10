@@ -19,6 +19,7 @@ struct SocketFiWalletView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 portfolio
+                quickActions
                 if let receipt = model.receipt { receiptCard(receipt) }
                 if let error = model.error {
                     WalletNotice(title: "Couldn't refresh your wallet", message: error, systemImage: "wifi.exclamationmark")
@@ -160,6 +161,37 @@ struct SocketFiWalletView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var quickActions: some View {
+        HStack(spacing: 10) {
+            walletAction(title: "Deposit", icon: "arrow.down.left", action: .deposit)
+            walletAction(title: "Withdraw", icon: "arrow.up.right", action: .withdraw)
+            walletAction(title: "Swap", icon: "arrow.left.arrow.right", action: .swap)
+            walletAction(title: "Address", icon: "doc.on.doc", action: .address)
+        }
+    }
+
+    private func walletAction(title: String, icon: String, action: SocketFiWalletModel.Action) -> some View {
+        Button { model.open(action) } label: {
+            VStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AccessStyle.brand)
+                    .frame(width: 38, height: 38)
+                    .background(AccessStyle.brand.opacity(0.1), in: Circle())
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 74)
+            .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border, lineWidth: 0.5))
+        }
+        .buttonStyle(AccessButtonStyle())
+        .disabled(model.busy || (action == .withdraw && model.tokens.isEmpty) || (action == .swap && model.tokens.count < 2))
+        .opacity((model.busy || (action == .withdraw && model.tokens.isEmpty) || (action == .swap && model.tokens.count < 2)) ? 0.45 : 1)
     }
 
     private func receiptCard(_ receipt: SocketFiWalletModel.Receipt) -> some View {
