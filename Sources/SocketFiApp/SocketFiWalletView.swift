@@ -173,11 +173,28 @@ struct SocketFiWalletView: View {
     }
 
     private func walletAction(title: String, icon: String, action: SocketFiWalletModel.Action) -> some View {
+        let assetName: String? = switch action {
+        case .deposit: "SocketFiReceive"
+        case .withdraw: "SocketFiSend"
+        case .swap: "SocketFiSwap"
+        case .address: "SocketFiWallet"
+        }
+
         Button { model.open(action) } label: {
             VStack(spacing: 7) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AccessStyle.brand)
+                Group {
+                    if let assetName {
+                        Image(assetName)
+                            .renderingMode(.original)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(8)
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(AccessStyle.brand)
+                    }
+                }
                     .frame(width: 38, height: 38)
                     .background(AccessStyle.brand.opacity(0.1), in: Circle())
                 Text(title)
@@ -250,10 +267,17 @@ struct WalletTokenIcon: View {
     let symbol: String
     var body: some View {
         ZStack {
-            Circle().fill(symbol == "USDC" ? Color.blue.opacity(0.12) : AccessStyle.brand.opacity(0.08))
-            if symbol == "USDC" { Text("$").font(.title2.weight(.medium)).foregroundStyle(.blue) }
-            else if symbol == "XLM" { Image(systemName: "sparkle").font(.title2).foregroundStyle(AccessStyle.brand) }
-            else { Text(String(symbol.prefix(2))).font(.subheadline.weight(.semibold)).foregroundStyle(AccessStyle.brand) }
+            Circle().fill(Color.white)
+            if ["XLM", "USDC", "USDT"].contains(symbol.uppercased()) {
+                Image("Token\(symbol.uppercased())")
+                    .renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(1)
+            } else {
+                Circle().fill(AccessStyle.brand.opacity(0.08))
+                Text(String(symbol.prefix(2))).font(.subheadline.weight(.semibold)).foregroundStyle(AccessStyle.brand)
+            }
         }.frame(width: 44, height: 44).accessibilityHidden(true)
     }
 }

@@ -16,8 +16,11 @@ struct SocketFiReceiveView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     VStack(spacing: 8) {
-                        Image(systemName: addressOnly ? "wallet.pass" : "arrow.down.left")
-                            .font(.title2).foregroundStyle(AccessStyle.brand)
+                        Image(addressOnly ? "SocketFiWallet" : "SocketFiReceive")
+                            .renderingMode(.original)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(12)
                             .frame(width: 56, height: 56)
                             .background(AccessStyle.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
                         Text(addressOnly ? "Your account" : "Receive funds").font(.title2.weight(.semibold))
