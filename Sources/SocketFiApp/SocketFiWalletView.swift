@@ -6,11 +6,13 @@ struct SocketFiWalletView: View {
     @StateObject private var model: SocketFiWalletModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var confirmActivityChecked = false
-    @State private var selectedToken: SocketFiToken?
+    @State private var selectedToken: WalletDisplayToken?
     @State private var copiedAddress = false
     @State private var showQuickSettings = false
     @State private var watchlistTokenIDs = Set<String>()
     @State private var usingCustomWatchlist = false
+    @State private var contractInput = ""
+    @State private var contractInputError = ""
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
@@ -46,28 +48,33 @@ struct SocketFiWalletView: View {
             if phase == .active && !model.busy { Task { await model.refresh() } }
         }
         .sheet(isPresented: $showQuickSettings) { quickSettingsSheet }
-        .sheet(item: $selectedToken) { token in
+        .sheet(item: $selectedToken) { item in
             NavigationStack {
                 List {
                     Section {
                         HStack(spacing: 14) {
-                            WalletTokenIcon(symbol: token.symbol)
+                            WalletTokenIcon(symbol: item.displaySymbol, identifier: item.id)
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(token.symbol).font(.headline)
-                                Text(model.hideBalances ? "••••" : "\(token.balanceText) \(token.symbol)").font(.title3).monospacedDigit()
+                                Text(item.displaySymbol).font(.headline)
+                                Text(model.hideBalances ? "••••" : item.balanceSummary).font(.title3).monospacedDigit()
                             }
                         }.padding(.vertical, 12)
                     }
                     Section("Token details") {
                         LabeledContent("Network", value: model.networkLabel)
-                        Text(token.contract).font(.footnote.monospaced()).textSelection(.enabled)
+                        Text(item.contract).font(.footnote.monospaced()).textSelection(.enabled)
                     }
-                    Section {
-                        Text("Balances are read from the network. A token's symbol is not proof of its issuer; verify the contract address before receiving unfamiliar assets.")
-                            .font(.footnote).foregroundStyle(.secondary)
+                    Section("Address status") {
+                        if let _ = item.token {
+                            Text("Balances are read from the network. A token's symbol is not proof of its issuer; verify the contract address before receiving unfamiliar assets.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else {
+                            Text("This contract has been added to your watchlist, but it is not currently in your loaded wallet snapshot.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .navigationTitle(token.symbol)
+                .navigationTitle(item.displaySymbol)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedToken = nil } } }
             }.presentationDetents([.medium, .large])
         }
@@ -147,11 +154,12 @@ struct SocketFiWalletView: View {
 
                 HStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Text(WalletFormat.shortAddress(model.session.account.address))
+                        Text(model.session.account.address)
                             .font(.footnote.weight(.medium))
                             .monospaced()
                             .truncationMode(.middle)
                             .lineLimit(1)
+                            .allowsTightening(true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Spacer()
                         Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
@@ -286,32 +294,130 @@ struct SocketFiWalletView: View {
             .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private var displayTokens: [SocketFiToken] {
+    private var displayTokens: [WalletDisplayToken] {
         if usingCustomWatchlist {
-            return model.tokens.filter { watchlistTokenIDs.contains($0.id) }
+            return model.tokens
+                .map(WalletDisplayToken.init(token:))
+                .filter { isWatching($0.id) }
+                + manualWatchlistTokens.filter { isWatching($0.id) }
+                .filter { !isKnownToken($0.id) }
         }
-        return model.tokens
+        return model.tokens.map(WalletDisplayToken.init(token:))
+    }
+
+    private var manualWatchlistTokens: [WalletDisplayToken] {
+        watchlistTokenIDs
+            .filter { !isKnownToken($0) }
+            .sorted()
+            .map { WalletDisplayToken(contract: $0) }
+    }
+
+    private func isKnownToken(_ tokenID: String) -> Bool {
+        model.tokens.contains(where: { $0.id == tokenID })
+    }
+
+    private func isWatching(_ tokenID: String) -> Bool {
+        if !usingCustomWatchlist { return true }
+        return watchlistTokenIDs.contains(tokenID)
+    }
+
+    private func toggleWatchlist(_ tokenID: String) {
+        usingCustomWatchlist = true
+        if watchlistTokenIDs.contains(tokenID) {
+            watchlistTokenIDs.remove(tokenID)
+        } else {
+            watchlistTokenIDs.insert(tokenID)
+        }
+        if watchlistTokenIDs.isEmpty { usingCustomWatchlist = false }
+        persistWatchlist()
+    }
+
+    private func addContractToWatchlist() {
+        let candidate = contractInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else {
+            contractInputError = "Enter a contract address."
+            return
+        }
+        guard SocketFiXDR.isAddress(candidate, contractOnly: true) else {
+            contractInputError = "This does not look like a valid Stellar contract address."
+            return
+        }
+        usingCustomWatchlist = true
+        watchlistTokenIDs.insert(candidate)
+        contractInput = ""
+        contractInputError = ""
+        persistWatchlist()
     }
 
     private var quickSettingsSheet: some View {
         NavigationStack {
             List {
-                Section("Watchlist") {
-                    if model.tokens.isEmpty {
-                        Text("Load your wallet to manage asset visibility.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
+                if !model.tokens.isEmpty {
+                    Section("Watchlist") {
                         ForEach(model.tokens) { token in
+                            let watchID = token.id
                             Button {
-                                toggleWatchlist(token.id)
+                                toggleWatchlist(watchID)
                             } label: {
                                 HStack {
-                                    WalletTokenIcon(symbol: token.symbol)
+                                    WalletTokenIcon(symbol: token.symbol, identifier: watchID)
                                         .frame(width: 28, height: 28)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(token.symbol).font(.body.weight(.medium))
                                         Text(token.contract)
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: isWatching(watchID) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(AccessStyle.brand)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if model.tokens.isEmpty {
+                    Section("Watchlist") {
+                        Text("Load your wallet to list existing assets.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Add custom asset by contract") {
+                    HStack(spacing: 10) {
+                        TextField("Contract address", text: $contractInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.footnote)
+                        Button {
+                            addContractToWatchlist()
+                        } label: {
+                            Text("Add")
+                                .font(.callout.weight(.semibold))
+                                .frame(minWidth: 64)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(contractInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if !contractInputError.isEmpty {
+                        Text(contractInputError).font(.caption).foregroundStyle(.red)
+                    }
+                    if !manualWatchlistTokens.isEmpty {
+                        ForEach(manualWatchlistTokens, id: \.id) { token in
+                            Button {
+                                toggleWatchlist(token.id)
+                            } label: {
+                                HStack {
+                                    WalletTokenIcon(symbol: token.displaySymbol, identifier: token.id)
+                                        .frame(width: 28, height: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(token.displaySymbol).font(.body.weight(.medium))
+                                        Text(token.id)
                                             .font(.caption2.monospaced())
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
@@ -325,6 +431,10 @@ struct SocketFiWalletView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    } else {
+                        Text("Add a contract address to track a custom asset in your wallet.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -345,23 +455,6 @@ struct SocketFiWalletView: View {
             }
             .presentationDetents([.large])
         }
-    }
-
-    private func isWatching(_ tokenID: String) -> Bool {
-        if !usingCustomWatchlist {
-            return true
-        }
-        return watchlistTokenIDs.contains(tokenID)
-    }
-
-    private func toggleWatchlist(_ tokenID: String) {
-        usingCustomWatchlist = true
-        if watchlistTokenIDs.contains(tokenID) {
-            watchlistTokenIDs.remove(tokenID)
-        } else {
-            watchlistTokenIDs.insert(tokenID)
-        }
-        persistWatchlist()
     }
 
     private func loadWatchlist() {
@@ -399,21 +492,23 @@ struct SocketFiWalletView: View {
         "socketfi.wallet.watchlist.\(model.configuration.clientID).\(model.session.account.network.rawValue).\(model.session.account.address)"
     }
 
-    private func tokenRow(_ token: SocketFiToken) -> some View {
+    private func tokenRow(_ token: WalletDisplayToken) -> some View {
         HStack(spacing: 12) {
-            WalletTokenIcon(symbol: token.symbol)
+            WalletTokenIcon(symbol: token.displaySymbol, identifier: token.id)
                 .frame(width: 38, height: 38)
             VStack(alignment: .leading, spacing: 3) {
-                Text(token.symbol).font(.body.weight(.semibold)).foregroundStyle(.primary)
-                Text(model.hideBalances ? "••••" : "\(token.balanceText) \(token.symbol)")
+                Text(token.displaySymbol).font(.body.weight(.semibold)).foregroundStyle(.primary)
+                Text(model.hideBalances ? "••••" : token.balanceSummary)
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 10)
             VStack(alignment: .trailing, spacing: 3) {
-                Text(model.hideBalances ? "••••" : WalletFormat.fiat(token.estimatedValue))
+                Text(model.hideBalances ? "••••" : token.fiatEstimate)
                     .font(.subheadline.weight(.medium)).monospacedDigit()
                     .foregroundStyle(.primary)
-                Text(token.availableBalance == nil ? "Balance unavailable" : "On-chain")
+                Text(token.availableBalance == nil
+                     ? (token.isPlaceholder ? "Not loaded yet" : "Balance unavailable")
+                     : "On-chain")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -438,7 +533,50 @@ enum WalletFormat {
         formatter.maximumFractionDigits = 2
         return formatter.string(from: NSDecimalNumber(decimal: value)) ?? "—"
     }
-    static func shortAddress(_ value: String) -> String { String(value.prefix(6)) + "…" + String(value.suffix(6)) }
+}
+
+private struct WalletDisplayToken: Identifiable, Hashable {
+    let id: String
+    let contract: String
+    let displaySymbol: String
+    let isPlaceholder: Bool
+    let availableBalance: String?
+    let estimatedValue: Decimal?
+    let token: SocketFiToken?
+
+    init(token: SocketFiToken) {
+        id = token.id
+        contract = token.contract
+        displaySymbol = token.symbol
+        isPlaceholder = false
+        availableBalance = token.availableBalance
+        estimatedValue = token.estimatedValue
+        self.token = token
+    }
+
+    init(contract: String) {
+        id = contract
+        self.contract = contract
+        let compact = contract
+        let prefix = compact.prefix(4).uppercased()
+        let suffix = String(compact.suffix(4)).uppercased()
+        displaySymbol = "\(prefix)…\(suffix)"
+        isPlaceholder = true
+        availableBalance = nil
+        estimatedValue = nil
+        token = nil
+    }
+
+    var balanceSummary: String {
+        if isPlaceholder || token == nil { return "—" }
+        guard let balance = availableBalance else { return "—" }
+        return "\(balance) \(displaySymbol)"
+    }
+
+    var fiatEstimate: String {
+        guard let estimatedValue else { return isPlaceholder ? "—" : "—" }
+        return WalletFormat.fiat(estimatedValue)
+    }
 }
 
 private struct TagPill: View {
@@ -457,9 +595,15 @@ private struct TagPill: View {
 
 struct WalletTokenIcon: View {
     let symbol: String
+    let identifier: String
+    init(symbol: String, identifier: String? = nil) {
+        self.symbol = symbol
+        self.identifier = identifier ?? symbol
+    }
+
     var body: some View {
+        let palette = WalletIconPalette(value: identifier)
         ZStack {
-            Circle().fill(Color.white)
             if ["XLM", "USDC", "USDT"].contains(symbol.uppercased()) {
                 Image("Token\(symbol.uppercased())")
                     .renderingMode(.original)
@@ -467,10 +611,42 @@ struct WalletTokenIcon: View {
                     .scaledToFit()
                     .padding(1)
             } else {
-                Circle().fill(AccessStyle.brand.opacity(0.08))
-                Text(String(symbol.prefix(2))).font(.subheadline.weight(.semibold)).foregroundStyle(AccessStyle.brand)
+                Circle().fill(
+                    RadialGradient(
+                        colors: [palette.secondary, palette.primary],
+                        center: .topLeading,
+                        startRadius: 4,
+                        endRadius: 22
+                    )
+                )
+                Text(palette.fallbackText)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .shadow(color: Color.black.opacity(0.25), radius: 0.8, x: 0.5, y: 0.5)
             }
         }.frame(width: 44, height: 44).accessibilityHidden(true)
+    }
+}
+
+private struct WalletIconPalette {
+    let hue: Double
+    let secondary: Color
+    let primary: Color
+    let fallbackText: String
+
+    init(value: String) {
+        let hash = abs(value.hashValue)
+        hue = Double(hash % 360) / 360
+        secondary = Color(hue: hue, saturation: 0.42, brightness: 0.62)
+        primary = Color(hue: (hue + 0.12).truncatingRemainder(dividingBy: 1), saturation: 0.55, brightness: 0.78)
+        let chars = value.filter { $0.isLetter || $0.isNumber }
+        if chars.count >= 2 {
+            fallbackText = String(chars.prefix(2)).uppercased()
+        } else if let first = value.first {
+            fallbackText = String(first).uppercased()
+        } else {
+            fallbackText = "W"
+        }
     }
 }
 
