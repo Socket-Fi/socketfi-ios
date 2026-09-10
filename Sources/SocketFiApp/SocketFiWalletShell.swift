@@ -42,7 +42,7 @@ struct SocketFiWalletShell: View {
             NavigationStack {
                 SocketFiWalletView(model: model)
                     .toolbarRole(.editor)
-                    .navigationTitle("Wallet")
+                    .navigationTitle("")
             }
             .tabItem { Label(SocketFiWalletTab.wallet.title, systemImage: SocketFiWalletTab.wallet.icon) }
             .tag(SocketFiWalletTab.wallet)
