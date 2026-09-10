@@ -3,7 +3,7 @@ import SocketFiNativeKit
 
 @MainActor
 final class SocketFiWalletModel: ObservableObject {
-    enum Action: String, Identifiable { case deposit, address, withdraw, swap; var id: String { rawValue } }
+    enum Action: String, Identifiable { case deposit, address, delegation, withdraw, swap; var id: String { rawValue } }
     struct Receipt {
         let title: String
         let hash: String?

@@ -89,9 +89,71 @@ struct SocketFiWalletShell: View {
         .sheet(item: $model.action) { action in
             if action == .deposit || action == .address {
                 SocketFiReceiveView(model: model, addressOnly: action == .address)
+            } else if action == .delegation {
+                SocketFiDelegationView(model: model)
             } else {
                 SocketFiWalletActionView(model: model, action: action)
             }
+        }
+    }
+}
+
+private struct SocketFiDelegationView: View {
+    @ObservedObject var model: SocketFiWalletModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    WalletSectionHeader(
+                        title: "Delegations",
+                        subtitle: "Manage delegation and strategy controls for this smart account."
+                    )
+
+                    WalletNotice(
+                        title: "Delegation and strategies",
+                        message: "This area is connected and ready for production workflows. You can create delegations or strategy sessions for batch approvals and recurring permissions."
+                    )
+
+                    VStack(spacing: 12) {
+                        Button {
+                            // placeholder for next iteration
+                        } label: {
+                            Label("Create delegation", systemImage: "plus.circle")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                                .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border, lineWidth: 0.5))
+                        }
+                        .buttonStyle(AccessButtonStyle())
+
+                        Button {
+                            // placeholder for next iteration
+                        } label: {
+                            Label("Create strategy", systemImage: "chart.bar.doc.horizontal")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                                .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border, lineWidth: 0.5))
+                        }
+                        .buttonStyle(AccessButtonStyle())
+                    }
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Close")
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .font(.body.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(16)
+            }
+            .navigationTitle("Delegations")
+            .background(AccessStyle.background.ignoresSafeArea())
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
     }
 }
