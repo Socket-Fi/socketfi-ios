@@ -8,6 +8,9 @@ struct SocketFiWalletView: View {
     @State private var confirmActivityChecked = false
     @State private var selectedToken: SocketFiToken?
     @State private var copiedAddress = false
+    @State private var showQuickSettings = false
+    @State private var watchlistTokenIDs = Set<String>()
+    @State private var usingCustomWatchlist = false
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
@@ -20,6 +23,7 @@ struct SocketFiWalletView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                walletBanner
                 portfolio
                 quickActions
                 if let receipt = model.receipt { receiptCard(receipt) }
@@ -37,9 +41,11 @@ struct SocketFiWalletView: View {
         .background(AccessStyle.background.ignoresSafeArea())
         .refreshable { await model.refresh() }
         .tint(AccessStyle.brand)
+        .onAppear { loadWatchlist() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && !model.busy { Task { await model.refresh() } }
         }
+        .sheet(isPresented: $showQuickSettings) { quickSettingsSheet }
         .sheet(item: $selectedToken) { token in
             NavigationStack {
                 List {
@@ -71,6 +77,40 @@ struct SocketFiWalletView: View {
         } message: {
             Text("Only continue after checking your account activity and balances. Repeating a payment that already succeeded sends the funds again.")
         }
+    }
+
+    private var walletBanner: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                SocketFiBrandMark()
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("SocketFi")
+                        .font(.headline.weight(.semibold))
+                    Text("Secure smart-account wallet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { showQuickSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 38, height: 38)
+                        .background(AccessStyle.surface, in: Circle())
+                        .foregroundStyle(AccessStyle.brand)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Wallet settings")
+            }
+            HStack(spacing: 8) {
+                TagPill(text: "Passkeys")
+                TagPill(text: "Policy controls")
+                TagPill(text: "Swaps")
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var portfolio: some View {
@@ -110,7 +150,9 @@ struct SocketFiWalletView: View {
                         Text(WalletFormat.shortAddress(model.session.account.address))
                             .font(.footnote.weight(.medium))
                             .monospaced()
+                            .truncationMode(.middle)
                             .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Spacer()
                         Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
                             Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
@@ -124,7 +166,7 @@ struct SocketFiWalletView: View {
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial, in: Capsule())
                     .accessibilityLabel("Contract account")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -149,15 +191,15 @@ struct SocketFiWalletView: View {
             }
             if model.snapshot == nil && model.loading {
                 ProgressView("Loading your assets…").frame(maxWidth: .infinity).padding(.vertical, 40)
-            } else if model.tokens.isEmpty {
+            } else if displayTokens.isEmpty {
                 ContentUnavailableView("Your wallet starts here", systemImage: "wallet.pass", description: Text("Deposit funds to start using your account."))
             } else {
                 VStack(spacing: 0) {
-                    ForEach(model.tokens) { token in
+                    ForEach(displayTokens) { token in
                         Button { selectedToken = token } label: {
                             tokenRow(token)
                         }.buttonStyle(.plain)
-                        if token.id != model.tokens.last?.id {
+                        if token.id != displayTokens.last?.id {
                             Divider().padding(.leading, 58)
                         }
                     }
@@ -240,6 +282,119 @@ struct SocketFiWalletView: View {
             .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
     }
 
+    private var displayTokens: [SocketFiToken] {
+        if usingCustomWatchlist {
+            return model.tokens.filter { watchlistTokenIDs.contains($0.id) }
+        }
+        return model.tokens
+    }
+
+    private var quickSettingsSheet: some View {
+        NavigationStack {
+            List {
+                Section("Watchlist") {
+                    if model.tokens.isEmpty {
+                        Text("Load your wallet to manage asset visibility.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.tokens) { token in
+                            Button {
+                                toggleWatchlist(token.id)
+                            } label: {
+                                HStack {
+                                    WalletTokenIcon(symbol: token.symbol)
+                                        .frame(width: 28, height: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(token.symbol).font(.body.weight(.medium))
+                                        Text(token.contract)
+                                            .font(.caption2.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: isWatching(token.id) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(AccessStyle.brand)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Section("Quick actions") {
+                    Button("Show all assets") {
+                        usingCustomWatchlist = false
+                        watchlistTokenIDs.removeAll()
+                        persistWatchlist()
+                    }
+                    .foregroundStyle(AccessStyle.brand)
+                }
+            }
+            .navigationTitle("Wallet settings")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { showQuickSettings = false }
+                }
+            }
+            .presentationDetents([.large])
+        }
+    }
+
+    private func isWatching(_ tokenID: String) -> Bool {
+        if !usingCustomWatchlist {
+            return true
+        }
+        return watchlistTokenIDs.contains(tokenID)
+    }
+
+    private func toggleWatchlist(_ tokenID: String) {
+        usingCustomWatchlist = true
+        if watchlistTokenIDs.contains(tokenID) {
+            watchlistTokenIDs.remove(tokenID)
+        } else {
+            watchlistTokenIDs.insert(tokenID)
+        }
+        persistWatchlist()
+    }
+
+    private func loadWatchlist() {
+        let key = watchlistStorageKey
+        guard let raw = UserDefaults.standard.data(forKey: key) else {
+            usingCustomWatchlist = false
+            watchlistTokenIDs.removeAll()
+            return
+        }
+        do {
+            let decoded = try JSONDecoder().decode([String].self, from: raw)
+            watchlistTokenIDs = Set(decoded)
+            usingCustomWatchlist = !decoded.isEmpty
+        } catch {
+            usingCustomWatchlist = false
+            watchlistTokenIDs.removeAll()
+        }
+    }
+
+    private func persistWatchlist() {
+        let key = watchlistStorageKey
+        if !usingCustomWatchlist || watchlistTokenIDs.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        do {
+            let encoded = try JSONEncoder().encode(Array(watchlistTokenIDs))
+            UserDefaults.standard.set(encoded, forKey: key)
+        } catch {
+            return
+        }
+    }
+
+    private var watchlistStorageKey: String {
+        "socketfi.wallet.watchlist.\(model.configuration.clientID).\(model.session.account.network.rawValue).\(model.session.account.address)"
+    }
+
     private func tokenRow(_ token: SocketFiToken) -> some View {
         HStack(spacing: 12) {
             WalletTokenIcon(symbol: token.symbol)
@@ -280,6 +435,20 @@ enum WalletFormat {
         return formatter.string(from: NSDecimalNumber(decimal: value)) ?? "—"
     }
     static func shortAddress(_ value: String) -> String { String(value.prefix(6)) + "…" + String(value.suffix(6)) }
+}
+
+private struct TagPill: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(AccessStyle.background, in: Capsule())
+            .overlay(Capsule().stroke(AccessStyle.border, lineWidth: 0.5))
+            .foregroundStyle(.primary)
+    }
 }
 
 struct WalletTokenIcon: View {
