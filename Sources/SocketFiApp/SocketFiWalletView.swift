@@ -13,6 +13,7 @@ struct SocketFiWalletView: View {
     @State private var usingCustomWatchlist = false
     @State private var contractInput = ""
     @State private var contractInputError = ""
+    @State private var contractPreviewState: ContractPreviewState = .idle
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
@@ -332,20 +333,89 @@ struct SocketFiWalletView: View {
         persistWatchlist()
     }
 
-    private func addContractToWatchlist() {
+    private func inspectContractAddress() {
+        contractPreviewState = .idle
+        contractInputError = ""
+
         let candidate = contractInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else {
             contractInputError = "Enter a contract address."
+            contractPreviewState = .idle
             return
         }
         guard SocketFiXDR.isAddress(candidate, contractOnly: true) else {
             contractInputError = "This does not look like a valid Stellar contract address."
+            contractPreviewState = .idle
             return
         }
+
+        let normalized = candidate.uppercased()
+        if normalized == model.session.account.address.uppercased() {
+            contractInputError = "A socket wallet address is not a token contract. Enter a token contract."
+            contractPreviewState = .idle
+            return
+        }
+        if watchlistTokenIDs.contains(normalized) {
+            contractInputError = "This contract is already in your watchlist."
+            contractPreviewState = .idle
+            return
+        }
+
+        contractPreviewState = .validating
+        Task {
+            if model.capabilities == nil {
+                do {
+                    try await model.refresh()
+                } catch { }
+            }
+            if contractInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() != normalized {
+                return
+            }
+            let preview = buildContractPreview(for: normalized)
+            contractPreviewState = .ready(preview)
+        }
+    }
+
+    private func buildContractPreview(for contract: String) -> ContractPreview {
+        if let token = model.tokens.first(where: { $0.contract == contract }) {
+            let transferEnabled = model.capabilities?.allows(
+                network: model.session.account.network,
+                contract: contract,
+                function: "transfer"
+            )
+            return ContractPreview(
+                contract: contract,
+                symbol: token.symbol,
+                inWallet: true,
+                transferEnabled: transferEnabled,
+                actionTitle: "Add to watchlist",
+                shouldBlockAdd: false
+            )
+        }
+
+        let transferEnabled = model.capabilities?.allows(
+            network: model.session.account.network,
+            contract: contract,
+            function: "transfer"
+        )
+        return ContractPreview(
+            contract: contract,
+            symbol: shortContractSymbol(for: contract),
+            inWallet: false,
+            transferEnabled: transferEnabled,
+            actionTitle: "Add to watchlist",
+            shouldBlockAdd: false
+        )
+    }
+
+    private func applyContractPreview() {
+        guard case .ready(let preview) = contractPreviewState else { return }
+        if preview.shouldBlockAdd { return }
         usingCustomWatchlist = true
-        watchlistTokenIDs.insert(candidate)
+        watchlistTokenIDs.insert(preview.contract)
         contractInput = ""
         contractInputError = ""
+        contractPreviewState = .idle
         persistWatchlist()
     }
 
@@ -394,18 +464,73 @@ struct SocketFiWalletView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.footnote)
+                            .onChange(of: contractInput) { _, _ in
+                                if contractPreviewState != .idle {
+                                    contractInputError = ""
+                                    contractPreviewState = .idle
+                                }
+                            }
+                            .onSubmit { inspectContractAddress() }
                         Button {
-                            addContractToWatchlist()
+                            inspectContractAddress()
                         } label: {
-                            Text("Add")
+                            Text("Review")
                                 .font(.callout.weight(.semibold))
                                 .frame(minWidth: 64)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(contractInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(
+                            contractInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            contractPreviewState == .validating
+                        )
                     }
+
+                    if case .validating = contractPreviewState {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking contract details…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     if !contractInputError.isEmpty {
                         Text(contractInputError).font(.caption).foregroundStyle(.red)
+                    }
+                    if case .ready(let preview) = contractPreviewState {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 12) {
+                                WalletTokenIcon(symbol: preview.symbol, identifier: preview.contract)
+                                    .frame(width: 28, height: 28)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(preview.symbol).font(.callout.weight(.semibold))
+                                    Text(preview.contract).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.subheadline)
+                                    .foregroundStyle(AccessStyle.brand)
+                            }
+                            Text(preview.statusMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 10) {
+                                Button("Cancel") {
+                                    contractPreviewState = .idle
+                                    contractInput = ""
+                                    contractInputError = ""
+                                }
+                                .buttonStyle(.bordered)
+                                Button(preview.actionTitle) {
+                                    applyContractPreview()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(preview.shouldBlockAdd)
+                            }
+                        }
+                        .padding(.top, 8)
                     }
                     if !manualWatchlistTokens.isEmpty {
                         ForEach(manualWatchlistTokens, id: \.id) { token in
@@ -466,7 +591,7 @@ struct SocketFiWalletView: View {
         }
         do {
             let decoded = try JSONDecoder().decode([String].self, from: raw)
-            watchlistTokenIDs = Set(decoded)
+            watchlistTokenIDs = Set(decoded.map { $0.uppercased() })
             usingCustomWatchlist = !decoded.isEmpty
         } catch {
             usingCustomWatchlist = false
@@ -521,6 +646,45 @@ struct SocketFiWalletView: View {
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             copied.wrappedValue = false
+        }
+    }
+
+    private func shortContractSymbol(for contract: String) -> String {
+        let compact = contract.uppercased()
+        let prefix = compact.prefix(4)
+        let suffix = compact.suffix(4)
+        return "\(prefix)…\(suffix)"
+    }
+}
+
+private enum ContractPreviewState: Equatable {
+    case idle
+    case validating
+    case ready(ContractPreview)
+}
+
+private struct ContractPreview: Equatable {
+    let contract: String
+    let symbol: String
+    let inWallet: Bool
+    let transferEnabled: Bool?
+    let actionTitle: String
+    let shouldBlockAdd: Bool
+
+    var statusMessage: String {
+        switch (inWallet, transferEnabled) {
+        case (_, .some(true)):
+            return inWallet
+                ? "Token is in your wallet snapshot and available for this app."
+                : "Token is valid and currently enabled for transfer in this app."
+        case (_, .some(false)):
+            return inWallet
+                ? "Token is loaded, but transfer is not yet enabled for this app."
+                : "This contract is not enabled for transfer with this app. It will still be watchable."
+        case (_, .none):
+            return inWallet
+                ? "Token is in your wallet snapshot. Refresh to verify action permissions."
+                : "Action permissions are still syncing. Add to watchlist to keep this contract pinned."
         }
     }
 }
