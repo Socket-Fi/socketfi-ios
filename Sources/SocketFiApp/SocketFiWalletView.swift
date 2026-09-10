@@ -192,7 +192,11 @@ struct SocketFiWalletView: View {
             if model.snapshot == nil && model.loading {
                 ProgressView("Loading your assets…").frame(maxWidth: .infinity).padding(.vertical, 40)
             } else if displayTokens.isEmpty {
-                ContentUnavailableView("Your wallet starts here", systemImage: "wallet.pass", description: Text("Deposit funds to start using your account."))
+                ContentUnavailableView(
+                    usingCustomWatchlist ? "No watched assets selected" : "Your wallet starts here",
+                    systemImage: usingCustomWatchlist ? "eye.slash" : "wallet.pass",
+                    description: Text(usingCustomWatchlist ? "Open quick settings and add at least one asset to your watchlist." : "Deposit funds to start using your account.")
+                )
             } else {
                 VStack(spacing: 0) {
                     ForEach(displayTokens) { token in
