@@ -107,14 +107,11 @@ struct SocketFiWalletView: View {
 
                 HStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Image(systemName: "eye")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 16, height: 16)
                         Text(WalletFormat.shortAddress(model.session.account.address))
                             .font(.footnote.weight(.medium))
                             .monospaced()
                             .lineLimit(1)
+                        Spacer()
                         Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
                             Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
                                 .font(.subheadline.weight(.semibold))
@@ -180,7 +177,7 @@ struct SocketFiWalletView: View {
             walletAction(title: "Deposit", icon: "arrow.down.left", action: .deposit)
             walletAction(title: "Withdraw", icon: "arrow.up.right", action: .withdraw)
             walletAction(title: "Swap", icon: "arrow.left.arrow.right", action: .swap)
-            walletAction(title: "Delegations", icon: "wallet.pass", action: .delegation)
+            walletAction(title: "Policies", icon: "shield.fill", action: .delegation)
         }
     }
 
@@ -190,7 +187,7 @@ struct SocketFiWalletView: View {
         case .withdraw: "SocketFiSend"
         case .swap: "SocketFiSwap"
         case .address: "SocketFiWallet"
-        case .delegation: "SocketFiWallet"
+        case .delegation: nil
         }
 
         return Button { model.open(action) } label: {
