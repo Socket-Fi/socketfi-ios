@@ -100,7 +100,14 @@ struct SocketFiWalletActionView: View {
     }
 
     private var actionHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(isSwap ? "SocketFiSwap" : "SocketFiSend")
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFit()
+                .padding(10)
+                .frame(width: 52, height: 52)
+                .background(AccessStyle.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
             Text(isSwap ? "Exchange assets" : "Send to another account")
                 .font(.title2.weight(.semibold))
             Text(
