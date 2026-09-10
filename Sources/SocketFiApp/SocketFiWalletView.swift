@@ -22,21 +22,18 @@ struct SocketFiWalletView: View {
             icon: "sparkles",
             title: "Smart account with policy controls",
             subtitle: "Use passkeys, delegations, and policy rules to spend safely.",
-            ctaTitle: "Manage policies",
             action: .delegation
         ),
         WalletPromoBanner(
             icon: "arrow.left.arrow.right.circle.fill",
             title: "Token swaps in one tap",
             subtitle: "Swap directly from your smart account with connected liquidity providers.",
-            ctaTitle: "Try swap",
             action: .swap
         ),
         WalletPromoBanner(
             icon: "wallet.pass.fill",
             title: "Track more assets",
             subtitle: "Add custom asset contracts and keep your wallet complete.",
-            ctaTitle: "Open watchlist",
             action: .openQuickSettings
         ),
     ]
@@ -71,15 +68,12 @@ struct SocketFiWalletView: View {
             Button { showQuickSettings = true } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.title3.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(AccessStyle.surface, in: Circle())
-                    .overlay(Circle().stroke(AccessStyle.border, lineWidth: 0.5))
+                    .frame(width: 44, height: 44)
                     .foregroundStyle(AccessStyle.brand)
-                    .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 2)
             }
             .buttonStyle(.plain)
-            .padding(.top, 10)
-            .padding(.trailing, 12)
+            .padding(.top, 4)
+            .padding(.trailing, 14)
             .accessibilityLabel("Wallet settings")
         }
         .background(AccessStyle.background.ignoresSafeArea())
@@ -165,19 +159,9 @@ struct SocketFiWalletView: View {
                             }
 
                             Spacer(minLength: 2)
-                            HStack(spacing: 6) {
-                                Text(banner.ctaTitle)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.95))
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.white.opacity(0.18), in: Capsule())
                         }
                         .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .background(
@@ -188,6 +172,7 @@ struct SocketFiWalletView: View {
                         ),
                         in: RoundedRectangle(cornerRadius: 16)
                     )
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
                     .tag(index)
                 }
             }
@@ -205,7 +190,8 @@ struct SocketFiWalletView: View {
                 .padding(.leading, 4)
             }
         }
-        .padding(.top, 2)
+        // Leave a clear gap below the floating settings control.
+        .padding(.top, 34)
     }
 
     private func executeWalletBannerAction(_ action: WalletBannerAction) {
@@ -883,7 +869,6 @@ private struct WalletPromoBanner: Identifiable {
     let icon: String
     let title: String
     let subtitle: String
-    let ctaTitle: String
     let action: WalletBannerAction
 }
 
