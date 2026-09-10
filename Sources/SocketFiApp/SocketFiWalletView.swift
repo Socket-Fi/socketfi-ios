@@ -868,6 +868,14 @@ private struct WalletDisplayToken: Identifiable, Hashable {
         guard let estimatedValue else { return isPlaceholder ? "—" : "—" }
         return WalletFormat.fiat(estimatedValue)
     }
+
+    static func == (lhs: WalletDisplayToken, rhs: WalletDisplayToken) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 private struct WalletPromoBanner: Identifiable {
