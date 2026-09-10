@@ -48,6 +48,7 @@ targets:
       base:
         CODE_SIGN_ENTITLEMENTS: Sources/SocketFiApp/SocketFi.entitlements
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi
       configs:
         Testnet:
