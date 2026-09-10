@@ -107,20 +107,20 @@ private struct SocketFiDelegationView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     WalletSectionHeader(
-                        title: "Delegations",
-                        subtitle: "Manage delegation and strategy controls for this smart account."
+                        title: "Policy controls",
+                        subtitle: "Set delegation and strategy controls for this smart account."
                     )
 
                     WalletNotice(
-                        title: "Delegation and strategies",
-                        message: "This area is connected and ready for production workflows. You can create delegations or strategy sessions for batch approvals and recurring permissions."
+                        title: "Delegations and strategies",
+                        message: "This area supports policy-based controls for approvals and recurring permissions."
                     )
 
                     VStack(spacing: 12) {
                         Button {
                             // placeholder for next iteration
                         } label: {
-                            Label("Create delegation", systemImage: "plus.circle")
+                        Label("Create delegation", systemImage: "plus.circle")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(16)
                                 .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -131,7 +131,7 @@ private struct SocketFiDelegationView: View {
                         Button {
                             // placeholder for next iteration
                         } label: {
-                            Label("Create strategy", systemImage: "chart.bar.doc.horizontal")
+                        Label("Create strategy", systemImage: "chart.bar.doc.horizontal")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(16)
                                 .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
@@ -151,7 +151,7 @@ private struct SocketFiDelegationView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("Delegations")
+            .navigationTitle("Policies")
             .background(AccessStyle.background.ignoresSafeArea())
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
         }
