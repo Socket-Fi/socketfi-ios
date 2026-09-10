@@ -5,11 +5,11 @@ struct SocketFiWalletActionView: View {
     @ObservedObject var model: SocketFiWalletModel
     let action: SocketFiWalletModel.Action
     @Environment(\.dismiss) private var dismiss
-    @State private var noMemoRequired = false
     @FocusState private var amountFocused: Bool
 
     private var isSwap: Bool { action == .swap }
     private var permitted: Bool { isSwap ? model.supportsSwaps : model.canWithdraw }
+    private var hasRecipient: Bool { SocketFiXDR.isAddress(model.recipient) }
 
     private var canSubmit: Bool {
         guard !model.busy, !model.unresolved, permitted, !model.amount.isEmpty else {
@@ -18,7 +18,7 @@ struct SocketFiWalletActionView: View {
         if isSwap {
             return !model.toID.isEmpty && model.fromID != model.toID
         }
-        return noMemoRequired && !model.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasRecipient
     }
 
     var body: some View {
@@ -93,7 +93,6 @@ struct SocketFiWalletActionView: View {
             model.actionError = nil
         }
         .onChange(of: model.recipient) { _, _ in
-            noMemoRequired = false
             model.review = nil
             model.actionError = nil
         }
@@ -182,14 +181,15 @@ struct SocketFiWalletActionView: View {
                 .padding(16)
                 .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
                 .disabled(model.busy)
-            Toggle(isOn: $noMemoRequired) {
-                Text("This recipient does not require a memo.")
-                    .font(.footnote)
-            }
-            .disabled(model.busy)
-            Text("Memo-based exchange deposits are not supported by this transfer flow. Confirm destination details before submitting.")
+            if !model.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasRecipient {
+                Text("Enter a valid Stellar G… or C… address.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else {
+                Text("Memo-based exchange deposits are not supported by this transfer flow. Confirm destination details before submitting.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
         }
     }
 

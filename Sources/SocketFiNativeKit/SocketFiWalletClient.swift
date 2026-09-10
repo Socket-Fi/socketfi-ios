@@ -68,8 +68,13 @@ public struct SocketFiProjectCapabilities: Decodable, Sendable {
     public let allowedInvocations: [Invocation]
 
     public func allows(network: SocketFiNetwork, contract: String, function: String) -> Bool {
-        networks.contains(network) && allowedInvocations.contains {
-            $0.network == network && $0.contractId == contract && $0.functions.contains(function)
+        let normalizedContract = contract.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let normalizedFunction = function.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return networks.contains(network) && allowedInvocations.contains {
+            $0.network == network &&
+            $0.contractId.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == normalizedContract &&
+            $0.functions.contains { $0 == normalizedFunction }
         }
     }
 }
