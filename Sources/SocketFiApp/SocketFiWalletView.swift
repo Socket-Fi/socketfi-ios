@@ -15,6 +15,7 @@ struct SocketFiWalletView: View {
     @State private var contractInputError = ""
     @State private var contractPreviewState: ContractPreviewState = .idle
     @State private var activeWalletBannerIndex = 0
+    @State private var isAddingWatchlistToken = false
 
     private let walletBanners: [WalletPromoBanner] = [
         WalletPromoBanner(
@@ -478,7 +479,7 @@ struct SocketFiWalletView: View {
     }
 
     private func buildContractPreview(for contract: String) -> ContractPreview {
-        if let token = model.tokens.first(where: { $0.contract == contract }) {
+        if let token = model.tokens.first(where: { $0.contract.uppercased() == contract }) {
             let transferEnabled = model.capabilities?.allows(
                 network: model.session.account.network,
                 contract: contract,
@@ -512,12 +513,28 @@ struct SocketFiWalletView: View {
     private func applyContractPreview() {
         guard case .ready(let preview) = contractPreviewState else { return }
         if preview.shouldBlockAdd { return }
-        usingCustomWatchlist = true
-        watchlistTokenIDs.insert(preview.contract)
-        contractInput = ""
-        contractInputError = ""
-        contractPreviewState = .idle
-        persistWatchlist()
+        if isAddingWatchlistToken { return }
+        isAddingWatchlistToken = true
+        Task {
+            defer {
+                Task { @MainActor in isAddingWatchlistToken = false }
+            }
+            do {
+                try await model.addTokenToWatchlist(contract: preview.contract)
+                await MainActor.run {
+                    usingCustomWatchlist = true
+                    watchlistTokenIDs.insert(preview.contract)
+                    persistWatchlist()
+                    contractInput = ""
+                    contractInputError = ""
+                    contractPreviewState = .idle
+                }
+            } catch {
+                await MainActor.run {
+                    contractInputError = error.localizedDescription
+                }
+            }
+        }
     }
 
     private var quickSettingsSheet: some View {
@@ -628,7 +645,16 @@ struct SocketFiWalletView: View {
                                     applyContractPreview()
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(preview.shouldBlockAdd)
+                                .disabled(preview.shouldBlockAdd || isAddingWatchlistToken)
+                            }
+                            if isAddingWatchlistToken {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Adding token to watchlist…")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .padding(.top, 8)
