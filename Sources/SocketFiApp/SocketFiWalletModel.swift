@@ -60,7 +60,8 @@ final class SocketFiWalletModel: ObservableObject {
     }
     var canWithdraw: Bool {
         guard let from else { return false }
-        return capabilities?.allows(network: session.account.network, contract: from.contract, function: "transfer") == true
+        guard let capabilities else { return true }
+        return capabilities.allows(network: session.account.network, contract: from.contract, function: "transfer")
     }
 
     func refresh() async {
