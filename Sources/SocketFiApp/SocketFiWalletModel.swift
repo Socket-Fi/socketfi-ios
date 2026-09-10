@@ -81,6 +81,20 @@ final class SocketFiWalletModel: ObservableObject {
         catch { capabilities = nil; self.error = self.error ?? "Balances are available, but transaction availability could not be checked. Pull down to retry." }
     }
 
+    func addTokenToWatchlist(contract: String) async throws {
+        guard !loading && !busy else {
+            throw SocketFiNativeError.configuration("Wallet refresh is in progress. Try again after it finishes.")
+        }
+        loading = true
+        error = nil
+        defer { loading = false }
+        try await wallet.addTokenToWatchlist(session: session, contract: contract)
+        let next = try await wallet.load(session: session)
+        snapshot = next
+        if !tokens.contains(where: { $0.id == fromID }) { fromID = tokens.first?.id ?? "" }
+        if !tokens.contains(where: { $0.id == toID }) { toID = tokens.first(where: { $0.id != fromID })?.id ?? "" }
+    }
+
     func open(_ next: Action, token: SocketFiToken? = nil) {
         guard !busy else { return }
         amount = ""; recipient = ""; quote = nil; review = nil; actionError = nil

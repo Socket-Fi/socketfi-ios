@@ -140,6 +140,27 @@ public struct SocketFiWalletClient {
         return snapshot
     }
 
+    public func addTokenToWatchlist(session: SocketFiSession, contract: String) async throws {
+        guard session.account.network == configuration.network, !session.isExpired else {
+            throw SocketFiNativeError.sessionUnavailable
+        }
+        guard let username = session.walletUsername else {
+            throw SocketFiNativeError.configuration("Sign in again to add a watchlist token.")
+        }
+        guard SocketFiXDR.isAddress(contract, contractOnly: true) else {
+            throw SocketFiNativeError.configuration("Enter a valid contract address.")
+        }
+
+        let payload = WatchlistTokenRequest(
+            network: configuration.network,
+            username: username,
+            walletAddress: session.account.address,
+            contract: contract.uppercased()
+        )
+
+        _ = try await api.post("api/wallet/tokens", body: payload, bearerToken: session.accessToken, response: WatchlistTokenResponse.self)
+    }
+
     public func capabilities() async throws -> SocketFiProjectCapabilities {
         let result = try await api.get(".well-known/socketfi-projects/\(configuration.clientID)", response: Envelope<SocketFiProjectCapabilities>.self)
         guard result.success, result.data.clientId == configuration.clientID,
@@ -194,4 +215,14 @@ private struct QuoteRequest: Encodable {
     let tokenOut: String
     let amountAtomic: String
     let slippageBps: Int
+}
+private struct WatchlistTokenRequest: Encodable {
+    let network: SocketFiNetwork
+    let username: String
+    let walletAddress: String
+    let contract: String
+}
+private struct WatchlistTokenResponse: Decodable {
+    let success: Bool
+    let token: SocketFiToken
 }
