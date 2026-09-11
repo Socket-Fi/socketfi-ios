@@ -154,13 +154,13 @@ struct SocketFiSignInView: View {
                         onboardingMethodButton(
                             title: "Continue with Stellar wallet",
                             subtitle: "Freighter, xBull, LOBSTR, and more",
-                            systemImage: "star.circle.fill"
+                            assetName: "SocketFiStellar"
                         )
 
                         onboardingMethodButton(
                             title: "Continue with EVM wallet",
                             subtitle: "MetaMask, Coinbase Wallet, and more",
-                            systemImage: "diamond.fill"
+                            assetName: "SocketFiEthereum"
                         )
                     }
 
@@ -197,9 +197,9 @@ struct SocketFiSignInView: View {
         }
     }
 
-    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String) -> some View {
+    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String? = nil, assetName: String? = nil) -> some View {
         Button {} label: {
-            onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, prominent: false)
+            onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, assetName: assetName, prominent: false)
         }
         .buttonStyle(AccessButtonStyle())
         .disabled(true)
@@ -210,13 +210,26 @@ struct SocketFiSignInView: View {
     private func onboardingMethodLabel(
         title: String,
         subtitle: String? = nil,
-        systemImage: String,
+        systemImage: String? = nil,
+        assetName: String? = nil,
         prominent: Bool
     ) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: 24)
+            Group {
+                if let assetName {
+                    Image(assetName)
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(1)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(prominent ? Color.white : AccessStyle.brand)
+                }
+            }
+            .frame(width: 30, height: 30)
+            .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.body.weight(.semibold))
@@ -322,11 +335,25 @@ struct SocketFiPasskeySheet: View {
 
                     Button { model.errorMessage = nil; showingCreateAccount = true } label: {
                         HStack(spacing: 8) {
-                            if pendingMode == .signUp { ProgressView().tint(AccessStyle.brand) }
-                            else { Image(systemName: "person.crop.circle.badge.plus") }
-                            Text(pendingMode == .signUp ? "Creating account…" : "Create account instead")
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(AccessStyle.brand)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Sign up with passkey")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AccessStyle.text)
+                                Text("Create a new smart account")
+                                    .font(.caption)
+                                    .foregroundStyle(AccessStyle.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AccessStyle.secondary)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                        .padding(.horizontal, 16)
                     }
                     .background(AccessStyle.background, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border))
