@@ -40,7 +40,7 @@ struct SocketFiWalletShell: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                SocketFiWalletView(model: model)
+                SocketFiWalletView(model: model, signOut: signOut)
                     .toolbarRole(.editor)
                     .navigationTitle("")
             }

@@ -16,6 +16,8 @@ struct SocketFiWalletView: View {
     @State private var contractPreviewState: ContractPreviewState = .idle
     @State private var activeWalletBannerIndex = 0
     @State private var isAddingWatchlistToken = false
+    @State private var confirmSignOut = false
+    private let signOut: () -> Void
 
     private let walletBanners: [WalletPromoBanner] = [
         WalletPromoBanner(
@@ -42,8 +44,9 @@ struct SocketFiWalletView: View {
         self.init(model: SocketFiWalletModel(session: session, configuration: configuration, signer: signer))
     }
 
-    init(model: SocketFiWalletModel) {
+    init(model: SocketFiWalletModel, signOut: @escaping () -> Void = {}) {
         _model = StateObject(wrappedValue: model)
+        self.signOut = signOut
     }
 
     var body: some View {
@@ -64,17 +67,21 @@ struct SocketFiWalletView: View {
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
         }
-        .overlay(alignment: .topTrailing) {
-            Button { showQuickSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 44, height: 44)
-                    .foregroundStyle(AccessStyle.brand)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer()
+                Button { showQuickSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(AccessStyle.brand)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Wallet settings")
             }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-            .padding(.trailing, 14)
-            .accessibilityLabel("Wallet settings")
+            .padding(.horizontal, 14)
+            .padding(.top, 2)
+            .background(Color.clear)
         }
         .background(AccessStyle.background.ignoresSafeArea())
         .refreshable { await model.refresh() }
@@ -119,6 +126,15 @@ struct SocketFiWalletView: View {
             Button("I've verified the outcome") { model.acknowledgeCheckedActivity() }
         } message: {
             Text("Only continue after checking your account activity and balances. Repeating a payment that already succeeded sends the funds again.")
+        }
+        .confirmationDialog("Sign out of SocketFi?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) {
+                showQuickSettings = false
+                signOut()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You can sign back in with your passkey anytime.")
         }
     }
 
@@ -190,8 +206,8 @@ struct SocketFiWalletView: View {
                 .padding(.leading, 4)
             }
         }
-        // Leave a clear gap below the floating settings control.
-        .padding(.top, 34)
+        // The safe-area header reserves space for the settings control.
+        .padding(.top, 8)
     }
 
     private func executeWalletBannerAction(_ action: WalletBannerAction) {
@@ -683,6 +699,14 @@ struct SocketFiWalletView: View {
                         persistWatchlist()
                     }
                     .foregroundStyle(AccessStyle.brand)
+                }
+
+                Section("Session") {
+                    Button(role: .destructive) {
+                        confirmSignOut = true
+                    } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
                 }
             }
             .navigationTitle("Wallet settings")
