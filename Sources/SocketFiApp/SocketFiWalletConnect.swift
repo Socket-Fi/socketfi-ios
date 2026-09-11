@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SocketFiNativeKit
 @preconcurrency import ReownAppKit
 import WalletConnectNetworking
 import WalletConnectRelay
