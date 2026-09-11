@@ -1,4 +1,5 @@
 import Foundation
+import Web3
 import CryptoSwift
 import HDWalletKit
 import WalletConnectSigner
