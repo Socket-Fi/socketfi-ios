@@ -132,6 +132,7 @@ public final class SocketFiNativeAccountClient {
     /// contract. The caller owns the WalletConnect personal_sign operation.
     public func authenticateEvm(
         onStage: (SocketFiEvmAuthStage) -> Void = { _ in },
+        walletSessionTopic: () -> String? = { nil },
         sign: @escaping (String) async throws -> String
     ) async throws -> SocketFiSession {
         try Task.checkCancellation()
@@ -197,7 +198,8 @@ public final class SocketFiNativeAccountClient {
         let session = SocketFiSession(
             account: SocketFiAccount(address: address, network: configuration.network, signer: .evmWallet),
             accessToken: token,
-            expiresAt: expiry, evmOwnerAddress: connectedAddress
+            expiresAt: expiry, evmOwnerAddress: connectedAddress,
+            evmWalletSessionTopic: walletSessionTopic()
         )
         try Task.checkCancellation()
         try await sessionStore.save(session)

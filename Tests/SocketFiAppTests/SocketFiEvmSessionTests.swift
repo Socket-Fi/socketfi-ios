@@ -6,8 +6,8 @@ final class SocketFiEvmSessionTests: XCTestCase {
     private let first = "0x1111111111111111111111111111111111111111"
     private let second = "0x2222222222222222222222222222222222222222"
 
-    private func session(addresses: [String], scoped: Bool = false, signing: Bool = true) -> Session {
-        Session(topic: "fixture-topic", pairingTopic: "fixture-pairing",
+    private func session(addresses: [String], scoped: Bool = false, signing: Bool = true, topic: String = "fixture-topic", expiresIn: TimeInterval = 600) -> Session {
+        Session(topic: topic, pairingTopic: "fixture-pairing",
                 peer: AppMetadata(name: "Fixture wallet", description: "Test fixture",
                                   url: "https://example.invalid", icons: [], redirect: try! AppMetadata.Redirect(native: "fixture-wallet://", universal: nil)),
                 requiredNamespaces: [:], namespaces: [
@@ -18,7 +18,27 @@ final class SocketFiEvmSessionTests: XCTestCase {
                         accounts: [Account("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:11111111111111111111111111111111")!],
                         methods: ["solana_signMessage"], events: [])
                 ], sessionProperties: nil, scopedProperties: nil,
-                expiryDate: Date().addingTimeInterval(600))
+                expiryDate: Date().addingTimeInterval(expiresIn))
+    }
+
+    @MainActor
+    func testTransactionUsesOnlyAuthenticatedWalletEvenWhenAnotherHasSameOwner() throws {
+        let original = session(addresses: [first], topic: "signed-in-wallet")
+        let otherWallet = session(addresses: [first], topic: "other-wallet")
+        let selected = try SocketFiWalletConnect.transactionSession(sessions: [otherWallet, original], topic: "signed-in-wallet", owner: first)
+        XCTAssertEqual(selected.topic, "signed-in-wallet")
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [otherWallet], topic: "signed-in-wallet", owner: first))
+    }
+
+    @MainActor
+    func testTransactionRejectsMissingExpiredChangedAndInvalidatedAuthority() throws {
+        let connected = session(addresses: [first])
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [connected], topic: nil, owner: first))
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [connected], topic: connected.topic, owner: nil))
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [connected], topic: connected.topic, owner: second))
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [connected], topic: connected.topic, owner: first, invalidatedTopics: [connected.topic]))
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [session(addresses: [first], expiresIn: -1)], topic: connected.topic, owner: first))
+        XCTAssertThrowsError(try SocketFiWalletConnect.transactionSession(sessions: [session(addresses: [first], signing: false)], topic: connected.topic, owner: first))
     }
 
     @MainActor

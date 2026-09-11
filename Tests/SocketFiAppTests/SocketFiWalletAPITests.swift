@@ -6,8 +6,10 @@ private final class WalletFixtureProtocol: URLProtocol {
         let lock = NSLock()
         var replies: [[String: Any]] = []
         var paths: [String] = []
+        var lastRequest: URLRequest?
     }
     private static let state = State()
+    static var lastRequest: URLRequest? { state.lock.withLock { state.lastRequest } }
     static var replies: [[String: Any]] {
         get { state.lock.withLock { state.replies } }
         set { state.lock.withLock { state.replies = newValue } }
@@ -19,6 +21,7 @@ private final class WalletFixtureProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.state.lock.withLock { Self.state.lastRequest = request }
         Self.paths.append(request.url!.path)
         guard !Self.replies.isEmpty else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
@@ -48,10 +51,44 @@ final class SocketFiWalletAPITests: XCTestCase {
     }
     func session() -> SocketFiSession {
         let payload = Data(#"{"username":"fixture"}"#.utf8).base64URLEncodedString
-        return .init(account: .init(address: wallet, network: .testnet, signer: .evmWallet), accessToken: "fixture.\(payload).fixture", expiresAt: Date().addingTimeInterval(600), evmOwnerAddress: owner)
+        return .init(account: .init(address: wallet, network: .testnet, signer: .evmWallet), accessToken: "fixture.\(payload).fixture", expiresAt: Date().addingTimeInterval(600), evmOwnerAddress: owner, evmWalletSessionTopic: "fixture-wallet-topic")
     }
     func request() -> SocketFiTransactionRequest {
         .init(contractID: token, functionName: "transfer", argsXDR: [], review: .init(title: "Fixture withdrawal", network: .testnet, source: wallet, destination: token, amount: "1 XLM", expiresAt: Date().addingTimeInterval(60)))
+    }
+
+    func testHistoryLoadsAuthenticatedPageAndRejectsWrongAccountNetworkAndCursor() async throws {
+        let transport = transport()
+        let client = SocketFiHistoryClient(configuration: configuration, urlSession: transport)
+        let item: [String: Any] = ["id": "indexed-event", "network": "TESTNET", "walletAddress": wallet,
+            "txHash": String(repeating: "a", count: 64), "ledger": "4621493", "status": "SUCCESS", "successful": true,
+            "actionType": "TRANSFER", "amountAtomic": "90071992547409930000001", "assetDecimals": 7, "assetSymbol": "XLM", "direction": "outgoing"]
+        let page: [String: Any] = ["success": true, "network": "TESTNET", "walletAddress": wallet,
+            "count": 1, "hasMore": false, "transactions": [item]]
+        WalletFixtureProtocol.replies = [page]
+        let loaded = try await client.load(session: session())
+        XCTAssertEqual(loaded.transactions[0].amountText, "9007199254740993.0000001")
+        XCTAssertEqual(loaded.transactions[0].title, "Sent")
+        XCTAssertEqual(loaded.transactions[0].explorerURL.host, "stellar.expert")
+        XCTAssertEqual(WalletFixtureProtocol.paths, ["/api/wallet/history"])
+        let sent = try XCTUnwrap(WalletFixtureProtocol.lastRequest)
+        XCTAssertEqual(sent.value(forHTTPHeaderField: "Authorization"), "Bearer " + session().accessToken)
+        XCTAssertEqual(sent.value(forHTTPHeaderField: "X-SocketFi-Client-ID"), configuration.clientID)
+        XCTAssertNil(sent.value(forHTTPHeaderField: "X-API-Key"))
+        let query = URLComponents(url: sent.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertEqual(query.first(where: { $0.name == "network" })?.value, "TESTNET")
+        XCTAssertEqual(query.first(where: { $0.name == "walletAddress" })?.value, wallet)
+        for change: [String: Any] in [["network": "PUBLIC"], ["walletAddress": token], ["count": 2],
+                                     ["hasMore": true], ["hasMore": true, "nextCursor": "repeated"]] {
+            WalletFixtureProtocol.replies = [page.merging(change) { _, new in new }]
+            do { _ = try await client.load(session: session(), cursor: "repeated"); XCTFail("Unbound or malformed history must be rejected") }
+            catch SocketFiNativeError.invalidResponse { }
+        }
+        for change: [String: Any] in [["network": "PUBLIC"], ["walletAddress": token], ["txHash": "invalid"], ["successful": false], ["amountAtomic": "1.5"]] {
+            WalletFixtureProtocol.replies = [page.merging(["transactions": [item.merging(change) { _, new in new }]]) { _, new in new }]
+            do { _ = try await client.load(session: session()); XCTFail("Invalid indexed event must be rejected") }
+            catch SocketFiNativeError.invalidResponse { }
+        }
     }
     func testTokenTransferPolicySupportsCustomAssetsWithoutOtherPermissions() throws {
         func policy(functions: [String] = ["transfer"]) throws -> SocketFiProjectCapabilities {
@@ -148,8 +185,12 @@ final class SocketFiWalletAPITests: XCTestCase {
         let data = try encoder.encode(session())
         XCTAssertEqual(try decoder.decode(SocketFiSession.self, from: data).evmOwnerAddress, owner)
         var old = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(try decoder.decode(SocketFiSession.self, from: data).evmWalletSessionTopic, "fixture-wallet-topic")
         old.removeValue(forKey: "evmOwnerAddress")
-        XCTAssertNil(try decoder.decode(SocketFiSession.self, from: JSONSerialization.data(withJSONObject: old)).evmOwnerAddress)
+        old.removeValue(forKey: "evmWalletSessionTopic")
+        let legacy = try decoder.decode(SocketFiSession.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(legacy.evmOwnerAddress)
+        XCTAssertNil(legacy.evmWalletSessionTopic)
     }
     func testEvmWrongAccountNeverPreparesOrSubmits() async throws {
         let http = transport(); defer { http.invalidateAndCancel() }

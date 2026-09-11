@@ -3,7 +3,6 @@ import SocketFiNativeKit
 
 struct SocketFiWalletActionView: View {
     @ObservedObject var model: SocketFiWalletModel
-    @ObservedObject private var connection = SocketFiWalletConnect.shared
     let action: SocketFiWalletModel.Action
     @Environment(\.dismiss) private var dismiss
     @FocusState private var amountFocused: Bool
@@ -88,11 +87,6 @@ struct SocketFiWalletActionView: View {
         }
         .tint(AccessStyle.brand)
         .interactiveDismissDisabled(model.busy)
-        .sheet(isPresented: $connection.showingPicker, onDismiss: {
-            if model.busy && !connection.hasSelectedSession { model.cancelApproval() }
-        }) {
-            SocketFiWalletPicker(connection: connection, cancel: model.cancelApproval)
-        }
         .onChange(of: model.amount) { _, _ in
             model.invalidateQuote()
             model.actionError = nil

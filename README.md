@@ -22,10 +22,9 @@ API protocol:
 5. Persist the session in a device-only Keychain item.
 6. Restore the account on app launch.
 
-Onboarding offers Create account and Sign in, using native passkeys. Its slate
-surfaces, indigo actions, and SocketFi mark follow the web app design system.
-Unavailable EVM and Stellar choices are omitted; those methods still require
-their own native signer adapters and hardened project-bound API routes.
+Onboarding offers native passkeys and a WalletConnect EVM wallet catalogue.
+Every EVM sign-in attempt permits a fresh wallet selection, including MetaMask
+and Trust Wallet. The Stellar option remains visible with its availability stated.
 Check compact phones, large text, dark mode, and keyboard presentation on device.
 
 ## Xcode setup
@@ -68,9 +67,10 @@ if iOS has cached an older domain association.
 
 Production remains unregistered and its client ID remains a placeholder. The
 Testnet registration enables native sign-in/sign-up and, after deploying the
-wallet registry update, transfers on the curated Testnet XLM and USDC contracts.
-Other tokens, swap routers, and PUBLIC access remain denied unless explicitly
-allowlisted. No contract changes are required.
+wallet registry update, transfers on Testnet token contracts, including custom assets. The wildcard
+permits only `transfer`; signature verification, simulation, and contract
+authorization still apply. Swap routers and PUBLIC access require separate
+explicit registration. No contract changes are required.
 
 The package currently targets iOS 17 because it depends on AuthenticationServices,
 UIKit presentation anchors and Swift concurrency. Build and test it on a real
@@ -108,8 +108,11 @@ Withdrawals accept checksum-validated Stellar G/C addresses. Memo-dependent
 exchange deposits are unsupported and require a different receiving route.
 
 Withdrawal and Aquarius swap requests use exact atomic strings, explicit review,
-the existing native passkey transaction endpoints, and the API's contract/function
-allowlist. A swap review includes input, estimated output, minimum received,
+the account’s sign-in authority, and the API’s contract/function allowlist.
+Passkey accounts use native passkey authorization. EVM accounts use the exact
+WalletConnect session and owner saved at sign-in, with no transaction wallet
+picker. Expired, disconnected, changed-account, and older unbound sessions
+require a fresh sign-in. A swap review includes input, estimated output, minimum received,
 slippage, network, token/router contracts, and quote expiry. A successful HTTP
 response alone is insufficient: only a valid transaction hash and RPC `SUCCESS`
 are shown as confirmed. No automatic financial retries occur. Unknown submission
@@ -119,3 +122,9 @@ the user to check activity before initiating another payment.
 Deployment and validation requirements are in [docs/wallet.md](docs/wallet.md).
 The wallet is implemented but is not release-certified until the macOS build,
 tests, physical-device signing, and Testnet transaction checks pass.
+
+Transaction history loads through the authenticated API proxy described in
+[docs/wallet.md](docs/wallet.md). Indexed events use cursor pagination, exact
+atomic amounts, account/network validation, and network-specific explorer links.
+The indexer key is server-only. No indexed activity and an unavailable service
+are distinct states.

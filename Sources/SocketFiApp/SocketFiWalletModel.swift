@@ -146,15 +146,18 @@ final class SocketFiWalletModel: ObservableObject {
                 receipt = Receipt(title: request.review.title, hash: nil, confirmed: false)
             }
             let result: SocketFiTransactionResult
-            if session.account.signer == .evmWallet {
+            switch session.account.signer {
+            case .evmWallet:
                 let connection = SocketFiWalletConnect.shared
-                connection.presentWalletPicker()
                 defer { connection.finishAttempt() }
+                try connection.useAccountAuthority(session)
                 result = try await signer.authorizeEvmTransaction(request, onSubmission: submitted) {
                     try await connection.sign(message: $0)
                 }
-            } else {
+            case .passkey:
                 result = try await signer.authorizePasskeyTransaction(request, onSubmission: submitted, confirmReview: { _ in true })
+            case .stellarWallet:
+                throw SocketFiNativeError.configuration("Stellar wallet transaction signing is not available in this build.")
             }
             markUnresolved(false)
             receipt = Receipt(title: request.review.title, hash: result.id, confirmed: true)

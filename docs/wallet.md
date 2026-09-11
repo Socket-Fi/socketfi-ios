@@ -11,6 +11,7 @@
 | Token balances/prices | API `GET /api/wallet/tokens` |
 | Project permissions | API `GET /.well-known/socketfi-projects/:clientId` |
 | Quote | API `POST /api/aquarius-swap/quote` |
+| Indexed history | API `GET /api/wallet/history` → account-indexer `/v1/wallets/:address/history` |
 | Native signing | `/api/native/transactions/start`, `/api/tx/transaction-intents/init`, `/api/tx/transaction-intents/sign-and-submit` |
 
 The Swift client owns only the address and integer ScVal encodings required by
@@ -21,10 +22,10 @@ and Paktly's project permissions are unchanged. This adds no runtime dependencie
 ## Deployment
 
 Deploy the updated `socketfi-sdk/apps/api/configs/well-known-projects.json`.
-The SocketFi iOS project gains only `transfer` on these Testnet token contracts:
-
-- XLM: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
-- USDC: `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`
+The SocketFi iOS project permits TESTNET token `transfer` calls, including
+custom assets, through a transfer-only contract wildcard. Other functions and
+PUBLIC remain denied. Simulation, exact owner authorization, and contract
+validation are unchanged.
 
 The registry is loaded at startup. For the checked-in Docker Compose deployment,
 rebuild the image and recreate the API service from the API deployment directory:
@@ -80,17 +81,51 @@ Read APIs and prices are observational. API and smart-account authorization rema
 authoritative; the client never grants itself permissions. Token lists remain the
 existing watched-token list, not a claim to discover every asset on the account.
 The portfolio USD total is an estimate derived from API market prices. The app
-does not embed an indexer API key; account history currently opens the explorer.
+does not embed an indexer API key; account history uses the authenticated API
+proxy below. Explorer links supplement indexed history.
 
-## Validation in the Linux workspace
+## Transaction authority
 
-- `node --test test/well-known-projects.test.js test/project-username.test.js`
-  in the SDK API: passed.
-- `node scripts/generate-api-spec.js` and the corresponding `--check`: passed
-  after refreshing the registry documentation and source digest.
-- `pnpm --filter @socketfi/api test:direct-integration`: stopped by pnpm's
-  existing ignored-build policy for esbuild/scarf; the exact underlying Node test
-  command above passed. The incidental pnpm workspace edit was removed.
-- Swift/Xcode compilation and XCTest execution could not run here: neither
-  Xcode nor a Swift compiler is installed. The tests are added, not claimed passed.
-- No transactions, deployments, commits, or pushes were performed.
+EVM authentication saves the WalletConnect session topic and verified owner
+address in the existing device-only Keychain session. A withdrawal reuses that
+exact session and owner; it never opens the authentication catalogue or selects
+another saved wallet. Legacy sessions without this binding require one fresh
+sign-in. Passkey accounts continue to use the native passkey transaction flow.
+Stellar signing is explicitly unavailable until its adapter is implemented.
+
+## Indexed history deployment
+
+Deploy the additive `socketfi-sdk` history route and configure these variables
+in the API server environment (never in the iOS app or a `VITE_` variable):
+
+- `SOCKETFI_HISTORY_API_URL`: account-indexer base URL reachable from the API
+  container, without `/v1`; use HTTPS across untrusted networks.
+- `SOCKETFI_HISTORY_API_KEY`: an active key from the indexer’s `APP_API_KEYS`.
+
+The proxy calls `/v1/wallets/:address/history` with explicit network, limit, and
+opaque cursor. It validates the login token, native registration, signed wallet
+mapping, and current database account mapping. Only display metadata is returned;
+raw indexed XDR, authorization entries, and upstream credentials are excluded.
+
+The native Transactions tab refreshes on entry, pull-to-refresh, and foreground
+return. Pagination preserves separate indexed events sharing the same hash,
+retains loaded data on errors, and rejects cursor cycles and mismatched accounts
+or networks. Amounts use exact strings; missing metadata stays visible without
+inventing prices. Indexed status cannot resolve an uncertain submission by itself.
+
+Validate after deployment with an existing Testnet login: history must show
+indexed account events, load older pages when available, and open full details
+and the correct network explorer. The opt-in physical-device test
+`testLiveIndexedHistoryAndTransactionDetails` uses
+`TEST_RUNNER_SOCKETFI_LIVE_HISTORY=1` with Xcode. The unavailable-service test is
+intended for an undeployed/unconfigured proxy, not a healthy live history service.
+
+Backend checks from `socketfi-sdk/apps/api`:
+
+```sh
+node --test test/well-known-projects.test.js test/project-username.test.js test/wallet-history.test.js
+node scripts/generate-api-spec.js --check
+```
+
+No database migration, contract update, WASM artifact, or new dependency is
+required. API deployment is required before real indexed history can load.

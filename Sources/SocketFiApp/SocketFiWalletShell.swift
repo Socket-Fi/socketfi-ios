@@ -304,88 +304,6 @@ private struct SocketFiTransfersView: View {
     }
 }
 
-private struct SocketFiActivityView: View {
-    @ObservedObject var model: SocketFiWalletModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let receipt = model.receipt {
-                    Group {
-                        Text(receipt.confirmed ? "Latest transaction confirmed" : "Latest transaction pending")
-                            .font(.title3.weight(.semibold))
-                        ActivityReceiptCard(receipt: receipt, action: { model.acknowledgeCheckedActivity() })
-                    }
-                } else {
-                    Text("No recent activity")
-                        .font(.title3.weight(.semibold))
-                    Text("Approve a withdraw or swap transaction to start your activity log.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                WalletSectionHeader(title: "On-chain activity", subtitle: "Open your account in the explorer for complete history.")
-
-                Link(destination: model.explorerURL) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "arrow.up.right.square")
-                        Text("Open account activity in explorer")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-                }
-                .buttonStyle(.plain)
-
-                if let hash = model.receipt?.hash {
-                    Link(destination: url) {
-                        HStack(spacing: 10) {
-                            Text("Open latest transaction")
-                                .font(.subheadline.weight(.semibold))
-                                .multilineTextAlignment(.leading)
-                            Spacer()
-                            Image(systemName: "link")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(16)
-                        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if model.unresolved {
-                    WalletNotice(
-                        title: "Awaiting on-chain confirmation",
-                        message: "Check explorer before initiating another withdraw/swap."
-                    )
-                }
-
-                if let snapshot = model.snapshot, let fetched = SocketFiWalletClient.date(snapshot.fetchedAt) {
-                    Text("Last balance sync: \(fetched.formatted(date: .numeric, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(20)
-        }
-        .frame(maxWidth: 640)
-        .frame(maxWidth: .infinity)
-        .background(AccessStyle.background.ignoresSafeArea())
-    }
-
-    private var url: URL {
-        if let hash = model.receipt?.hash {
-            return model.transactionURL(hash)
-        }
-        return model.explorerURL
-    }
-}
-
 private struct SocketFiAccountView: View {
     @ObservedObject var model: SocketFiWalletModel
     let signOut: () -> Void
@@ -783,7 +701,7 @@ private struct QuickActionButtonLabel: View {
     }
 }
 
-private struct ActivityReceiptCard: View {
+struct ActivityReceiptCard: View {
     let receipt: SocketFiWalletModel.Receipt
     let action: () -> Void
 
@@ -792,7 +710,7 @@ private struct ActivityReceiptCard: View {
             Label(receipt.confirmed ? "Transaction confirmed" : receipt.title, systemImage: receipt.confirmed ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
                 .font(.subheadline.weight(.semibold))
             Text(receipt.confirmed
-                 ? "The wallet has reported confirmation."
+                 ? "The network confirmed this transaction."
                  : "Check the on-chain status before starting another payment.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

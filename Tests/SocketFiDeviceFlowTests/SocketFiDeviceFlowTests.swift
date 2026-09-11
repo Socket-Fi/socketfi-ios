@@ -2,6 +2,42 @@ import XCTest
 
 /// Opt-in, physical TESTNET integration check. Never run against Production.
 final class SocketFiDeviceFlowTests: XCTestCase {
+    @MainActor
+    func testHistoryUnavailableShowsRetryInsteadOfFalseEmpty() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 25))
+        app.tabBars.buttons["Transactions"].tap()
+        XCTAssertTrue(app.buttons["history.retry"].waitForExistence(timeout: 55))
+        XCTAssertFalse(app.staticTexts["No indexed activity yet"].exists)
+        app.buttons["history.retry"].tap()
+        XCTAssertTrue(app.staticTexts["History unavailable"].waitForExistence(timeout: 55))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "History unavailable and retry on Alaa"; shot.lifetime = .keepAlways; add(shot)
+        app.tabBars.buttons["Wallet"].tap()
+    }
+
+    @MainActor
+    func testLiveIndexedHistoryAndTransactionDetails() throws {
+        guard ProcessInfo.processInfo.environment["SOCKETFI_LIVE_HISTORY"] == "1" else {
+            throw XCTSkip("Requires the deployed authenticated history proxy and configured indexer")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 25))
+        app.tabBars.buttons["Transactions"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "history.item.")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 55), "Must show real indexed activity, not an empty or unavailable state")
+        let hash = row.value as? String ?? ""
+        XCTAssertNotNil(hash.range(of: "^[a-fA-F0-9]{64}$", options: .regularExpression))
+        row.tap()
+        XCTAssertTrue(app.staticTexts[hash].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Stellar Testnet"].exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Live indexed transaction details on Alaa"; shot.lifetime = .keepAlways; add(shot)
+    }
     /// Opt-in: sends exactly 1 TESTNET XLM once. Wallet approvals stay user-controlled.
     /// Invoke only after checking the deployed policy and recipient baseline.
     @MainActor
@@ -33,9 +69,8 @@ final class SocketFiDeviceFlowTests: XCTestCase {
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Actual 1 XLM withdrawal review"; screenshot.lifetime = .keepAlways; add(screenshot)
         approve.tap()
-        let choice = app.buttons["wallet.choice.MetaMask"]
-        XCTAssertTrue(choice.waitForExistence(timeout: 35))
-        choice.tap()
+        XCTAssertFalse(app.buttons["wallet.choice.MetaMask"].exists, "A transaction must not show the authentication wallet picker")
+        XCTAssertFalse(app.buttons["wallet.choice.Trust Wallet"].exists)
         let wallet = XCUIApplication(bundleIdentifier: "io.metamask.MetaMask")
         let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let openDeadline = Date().addingTimeInterval(30)
@@ -97,10 +132,10 @@ final class SocketFiDeviceFlowTests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
         app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Withdrawals are unavailable for this app."].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["Review withdrawal"].isEnabled, "An empty project allowlist must block submission")
+        XCTAssertFalse(app.staticTexts["Withdrawals are unavailable for this app."].exists)
+        XCTAssertTrue(app.buttons["Review withdrawal"].isEnabled, "The deployed Testnet token transfer policy must permit review")
         let blocked = XCTAttachment(screenshot: app.screenshot())
-        blocked.name = "Funded withdrawal blocked by project permissions"; blocked.lifetime = .keepAlways; add(blocked)
+        blocked.name = "Funded Testnet withdrawal available"; blocked.lifetime = .keepAlways; add(blocked)
         app.terminate(); app.launch()
     }
 

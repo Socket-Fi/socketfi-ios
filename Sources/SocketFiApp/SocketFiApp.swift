@@ -131,7 +131,7 @@ final class SocketFiAppModel: ObservableObject {
             let session = try await client.authenticateEvm(onStage: { stage in
                 self.evmStage = stage
                 self.refreshEvmConnection()
-            }) { message in
+            }, walletSessionTopic: { SocketFiWalletConnect.shared.selectedSessionTopic }) { message in
                 try await SocketFiWalletConnect.shared.sign(message: message)
             }
             state = .signedIn(session)

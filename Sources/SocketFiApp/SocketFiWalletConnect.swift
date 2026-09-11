@@ -107,6 +107,41 @@ final class SocketFiWalletConnect: ObservableObject {
         showingPicker = true
     }
 
+    var selectedSessionTopic: String? { currentSession?.topic }
+
+    /// Transactions are bound to the wallet session used for this account's login.
+    /// Never fall back to a different saved wallet or the authentication picker.
+    func useAccountAuthority(_ accountSession: SocketFiSession) throws {
+        finishAttempt()
+        boundTopic = nil
+        boundAddress = nil
+        selectedWallet = nil
+        connectionError = nil
+        rejected = false
+        accountChanged = false
+        guard configured, accountSession.account.signer == .evmWallet else {
+            throw SocketFiNativeError.sessionUnavailable
+        }
+        let session = try Self.transactionSession(
+            sessions: AppKit.instance.getSessions(), topic: accountSession.evmWalletSessionTopic,
+            owner: accountSession.evmOwnerAddress, invalidatedTopics: invalidatedTopics
+        )
+        boundTopic = session.topic
+        boundAddress = accountSession.evmOwnerAddress?.lowercased()
+        NSLog("[SocketFiWithdrawal] stage=account_authority_selected")
+    }
+
+    static func transactionSession(sessions: [Session], topic: String?, owner: String?,
+                                   invalidatedTopics: Set<String> = []) throws -> Session {
+        guard let topic, !topic.isEmpty, let owner, !owner.isEmpty,
+              !invalidatedTopics.contains(topic),
+              let session = sessions.first(where: { $0.topic == topic && $0.expiryDate > Date() }) else {
+            throw SocketFiNativeError.configuration("Your wallet connection needs to be renewed. Sign in again with this account’s EVM wallet, then retry the transaction.")
+        }
+        _ = try resolveAccount(session: session, displayedAddress: nil, boundAddress: owner.lowercased())
+        return session
+    }
+
     func finishAttempt() {
         attempt = UUID()
         connectionTask?.cancel()
@@ -233,7 +268,7 @@ final class SocketFiWalletConnect: ObservableObject {
             try await openWalletURL(link)
             return
         }
-        throw SocketFiNativeError.configuration("Couldn’t open the connected wallet. Open it manually to approve, or cancel and choose another wallet.")
+        throw SocketFiNativeError.configuration("Couldn’t open your connected wallet. Open it manually to approve, or cancel and sign in again with the same account.")
     }
 
     private var currentSession: Session? {

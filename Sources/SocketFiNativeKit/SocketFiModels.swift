@@ -79,12 +79,14 @@ public struct SocketFiSession: Codable, Equatable, Sendable {
     public let accessToken: String
     public let expiresAt: Date
     public let evmOwnerAddress: String?
+    public let evmWalletSessionTopic: String?
 
-    public init(account: SocketFiAccount, accessToken: String, expiresAt: Date, evmOwnerAddress: String? = nil) {
+    public init(account: SocketFiAccount, accessToken: String, expiresAt: Date, evmOwnerAddress: String? = nil, evmWalletSessionTopic: String? = nil) {
         self.account = account
         self.accessToken = accessToken
         self.expiresAt = expiresAt
         self.evmOwnerAddress = evmOwnerAddress
+        self.evmWalletSessionTopic = evmWalletSessionTopic
     }
 
     public var isExpired: Bool { expiresAt <= Date() }
