@@ -16,15 +16,19 @@ struct SocketFiCreateAccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     VStack(alignment: .leading, spacing: 10) {
-                        SocketFiBrandMark()
-                            .fill(AccessStyle.brand, style: FillStyle(eoFill: true))
-                            .frame(width: 36, height: 36)
-                            .padding(.bottom, 12)
-                            .accessibilityHidden(true)
-                        Text("Make it yours")
+                        ZStack {
+                            Circle().fill(AccessStyle.primary.opacity(0.1))
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(AccessStyle.brand)
+                        }
+                        .frame(width: 52, height: 52)
+                        .padding(.bottom, 10)
+                        .accessibilityHidden(true)
+                        Text("Create your account")
                             .font(.largeTitle.weight(.semibold))
                             .tracking(-0.8)
-                        Text("Choose a username for your SocketFi account.")
+                        Text("Choose a username, then secure it with your passkey.")
                             .font(.body)
                             .foregroundStyle(AccessStyle.secondary)
                     }
@@ -81,8 +85,8 @@ struct SocketFiCreateAccountView: View {
                         .buttonStyle(AccessButtonStyle())
                         .disabled(!valid || isWorking)
                         .opacity(valid ? 1 : 0.5)
-                        Text("Next, you’ll secure your account with a passkey.")
-                            .font(.footnote)
+                            Text("Your passkey stays on this device and is never shared with SocketFi.")
+                                .font(.footnote)
                             .foregroundStyle(AccessStyle.secondary)
                             .multilineTextAlignment(.center)
                     }
