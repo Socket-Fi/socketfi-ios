@@ -22,6 +22,7 @@ final class SocketFiWalletModel: ObservableObject {
     @Published var actionError: String?
     @Published var action: Action?
     @Published var receipt: Receipt?
+    @Published var actionResult: Receipt?
     @Published var unresolved: Bool
     @Published var fromID = ""
     @Published var toID = ""
@@ -105,7 +106,7 @@ final class SocketFiWalletModel: ObservableObject {
 
     func open(_ next: Action, token: SocketFiToken? = nil) {
         guard !busy else { return }
-        amount = ""; recipient = ""; quote = nil; review = nil; actionError = nil
+        amount = ""; recipient = ""; quote = nil; review = nil; actionError = nil; actionResult = nil
         if let token { fromID = token.id }
         if fromID == toID { toID = tokens.first(where: { $0.id != fromID })?.id ?? "" }
         action = next
@@ -136,7 +137,7 @@ final class SocketFiWalletModel: ObservableObject {
     }
 
     func approve() async {
-        guard !busy, !unresolved, let request = review else { return }
+        guard !busy, !unresolved, actionResult == nil, let request = review else { return }
         busy = true; actionError = nil; phase = session.account.signer == .evmWallet ? "Approve in your EVM wallet…" : "Approve with your passkey…"
         defer { busy = false; phase = "" }
         do {
@@ -161,8 +162,8 @@ final class SocketFiWalletModel: ObservableObject {
             }
             markUnresolved(false)
             receipt = Receipt(title: request.review.title, hash: result.id, confirmed: true)
-            review = nil; action = nil
-            await refresh()
+            actionResult = receipt
+            Task { await refresh() }
         } catch is CancellationError {
             actionError = "Approval cancelled. Nothing was submitted."
             review = nil
@@ -177,7 +178,7 @@ final class SocketFiWalletModel: ObservableObject {
         } catch SocketFiNativeError.submissionUncertain(let hash) {
             markUnresolved(true)
             receipt = Receipt(title: "Confirmation unavailable", hash: hash, confirmed: false)
-            review = nil; action = nil
+            actionResult = receipt
         } catch {
             actionError = error.localizedDescription
             review = nil

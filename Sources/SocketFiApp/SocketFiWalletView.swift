@@ -62,11 +62,12 @@ struct SocketFiWalletView: View {
                 assets
             }
             .padding(.horizontal, 22)
-            .padding(.top, 20)
+            .padding(.top, 8)
             .padding(.bottom, 36)
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
         }
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showQuickSettings = true } label: {
@@ -203,8 +204,6 @@ struct SocketFiWalletView: View {
                 .padding(.leading, 4)
             }
         }
-        // Keep a small breathing space below the navigation toolbar.
-        .padding(.top, 8)
     }
 
     private func executeWalletBannerAction(_ action: WalletBannerAction) {
@@ -867,9 +866,8 @@ private struct WalletDisplayToken: Identifiable, Hashable {
     }
 
     var balanceSummary: String {
-        if isPlaceholder || token == nil { return "—" }
-        guard let balance = availableBalance else { return "—" }
-        return "\(balance) \(displaySymbol)"
+        guard !isPlaceholder, let token, availableBalance != nil else { return "—" }
+        return "\(token.balanceText) \(displaySymbol)"
     }
 
     var fiatEstimate: String {

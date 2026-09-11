@@ -2,6 +2,32 @@ import XCTest
 
 /// Opt-in, physical TESTNET integration check. Never run against Production.
 final class SocketFiDeviceFlowTests: XCTestCase {
+    /// Reviews a real funded account without signing or submitting a payment.
+    @MainActor
+    func testWithdrawalReviewRemainsVisible() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 25))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: app.buttons["Withdraw"])
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 60), .completed)
+        app.buttons["Withdraw"].tap()
+        app.textFields["withdraw.amount"].tap()
+        app.textFields["withdraw.amount"].typeText("1")
+        let recipient = app.descendants(matching: .any)["withdraw.recipient"].firstMatch
+        recipient.tap()
+        recipient.typeText("GBARGJH4BTODPXFAK6UJGUR37LMUG4N7V46GIH4AD57VLO3ZH4LYHHD3")
+        app.toolbars.buttons["Done"].tap()
+        app.swipeUp()
+        app.buttons["Review withdrawal"].tap()
+        let approve = app.buttons.matching(NSPredicate(format: "label IN %@", ["Approve in wallet", "Approve with passkey"])).firstMatch
+        XCTAssertTrue(approve.waitForExistence(timeout: 50))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Withdrawal review after button tap"; shot.lifetime = .keepAlways; add(shot)
+        XCTAssertTrue(app.staticTexts["You're sending"].isHittable, "Review must reset its scroll position and remain visible")
+        app.navigationBars.buttons["Back"].tap()
+        app.navigationBars.buttons["Cancel"].tap()
+    }
     @MainActor
     func testHistoryUnavailableShowsRetryInsteadOfFalseEmpty() {
         continueAfterFailure = false
@@ -64,13 +90,15 @@ final class SocketFiDeviceFlowTests: XCTestCase {
         let review = app.buttons["Review withdrawal"]
         XCTAssertTrue(review.isEnabled, "Live project must permit TESTNET token transfers; no bypass is allowed")
         review.tap()
-        let approve = app.buttons["Approve in wallet"]
-        XCTAssertTrue(approve.waitForExistence(timeout: 50), "This opt-in run requires the funded EVM session")
+        let approve = app.buttons.matching(NSPredicate(format: "label IN %@", ["Approve in wallet", "Approve with passkey"])).firstMatch
+        XCTAssertTrue(approve.waitForExistence(timeout: 50), "This opt-in run requires a funded account")
+        let usesWallet = approve.label == "Approve in wallet"
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Actual 1 XLM withdrawal review"; screenshot.lifetime = .keepAlways; add(screenshot)
         approve.tap()
         XCTAssertFalse(app.buttons["wallet.choice.MetaMask"].exists, "A transaction must not show the authentication wallet picker")
         XCTAssertFalse(app.buttons["wallet.choice.Trust Wallet"].exists)
+        if usesWallet {
         let wallet = XCUIApplication(bundleIdentifier: "io.metamask.MetaMask")
         let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let openDeadline = Date().addingTimeInterval(30)
@@ -80,6 +108,7 @@ final class SocketFiDeviceFlowTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
         XCTAssertEqual(wallet.state, .runningForeground)
+        }
         print("[SocketFiWithdrawalTest] awaiting_physical_wallet_approval")
         XCTAssertTrue(app.staticTexts["Transaction confirmed"].waitForExistence(timeout: 170), "Review any uncertain outcome before attempting another transfer")
         let receipt = app.descendants(matching: .any)["wallet.receipt"].firstMatch

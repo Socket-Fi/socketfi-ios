@@ -32,9 +32,16 @@ struct SocketFiWalletActionView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let request = model.review {
+                    if let error = model.actionError {
+                        WalletNotice(title: "Couldn't continue", message: error, systemImage: "exclamationmark.circle")
+                    }
+                    if let result = model.actionResult {
+                        resultContent(result)
+                    } else if let request = model.review {
+                        if model.busy { approvalProgress }
                         reviewContent(request.review)
                     } else {
+                        if model.busy { approvalProgress }
                         actionHeader
                         if let from = model.from {
                             fromAssetRow(from)
@@ -48,27 +55,28 @@ struct SocketFiWalletActionView: View {
                             )
                         }
                     }
-                    if model.unresolved {
+                    if model.unresolved && model.actionResult == nil {
                         WalletNotice(
                             title: "Complete previous payment check",
                             message: "Check the linked account activity before making another payment."
                         )
-                    }
-                    if let error = model.actionError {
-                        WalletNotice(title: "Couldn't continue", message: error, systemImage: "exclamationmark.circle")
                     }
                 }
                 .padding(24)
                 .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity)
             }
+            // A new review/result starts at the top, independent of the form's
+            // keyboard and scroll offset. Keep the sheet itself mounted.
+            .id(model.actionResult != nil ? "result" : model.review != nil ? "review" : model.busy ? "preparing" : "entry")
             .scrollDismissesKeyboard(.interactively)
             .background(AccessStyle.background.ignoresSafeArea())
-            .navigationTitle(model.review == nil ? (isSwap ? "Swap" : "Withdraw") : "Review transaction")
+            .navigationTitle(model.actionResult != nil ? "Transaction status" : model.review == nil ? (isSwap ? "Swap" : "Withdraw") : "Review transaction")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(model.review == nil ? "Cancel" : "Back") {
+                    Button(model.actionResult != nil ? "Done" : model.review == nil ? "Cancel" : "Back") {
+                        if model.actionResult != nil { dismiss(); return }
                         if model.review != nil {
                             model.review = nil
                             model.quote = nil
@@ -85,6 +93,8 @@ struct SocketFiWalletActionView: View {
             }
             .safeAreaInset(edge: .bottom) { footer }
         }
+        .presentationBackground(AccessStyle.background)
+        .background(AccessStyle.background.ignoresSafeArea())
         .tint(AccessStyle.brand)
         .interactiveDismissDisabled(model.busy)
         .onChange(of: model.amount) { _, _ in
@@ -271,33 +281,75 @@ struct SocketFiWalletActionView: View {
                 }
                 reviewRow("Network", value: model.networkLabel)
                 reviewRow(isSwap ? "Aquarius router" : "Recipient", value: review.destination, address: true)
-                reviewRow("From your account", value: review.source, address: true)
-                reviewRow("Token contract", value: model.from?.contract ?? "", address: true)
-                if isSwap, let to = model.to {
-                    reviewRow("Receive token contract", value: to.contract, address: true)
+                DisclosureGroup("Account and token details") {
+                    VStack(alignment: .leading, spacing: 16) {
+                        reviewRow("From your account", value: review.source, address: true)
+                        reviewRow("Token contract", value: model.from?.contract ?? "", address: true)
+                        if isSwap, let to = model.to {
+                            reviewRow("Receive token contract", value: to.contract, address: true)
+                        }
+                    }.padding(.top, 12)
                 }
-                Text("Paymaster handles network fees. Fee details are not surfaced by the current API.")
+                Text("Network fees are handled by SocketFi. A fee estimate is unavailable.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(20)
             .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 20))
 
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            if !model.busy { TimelineView(.periodic(from: .now, by: 1)) { context in
                 let seconds = max(0, Int(review.expiresAt.timeIntervalSince(context.date)))
                 Text(
                     context.date < review.expiresAt
                     ? "Review expires in \(seconds)s"
-                    : "This review has expired. Open a fresh quote."
+                    : "This review has expired. Go back and review again."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            }
+            } }
 
             Label("Approve only if the details are correct.", systemImage: "checkmark.shield")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var approvalProgress: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ProgressView().tint(AccessStyle.brand).padding(.top, 3)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(model.phase).font(.subheadline.weight(.semibold))
+                Text(model.unresolved ? "Sending your payment and checking its final status." : model.review == nil ? "Checking the latest balance and payment details." : "Your payment details stay here while you approve.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+        .background(AccessStyle.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func resultContent(_ result: SocketFiWalletModel.Receipt) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Image(systemName: result.confirmed ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
+                .font(.system(size: 48)).foregroundStyle(AccessStyle.brand)
+            Text(result.confirmed ? "Transaction confirmed" : "Check transaction status")
+                .font(.title2.weight(.semibold))
+            if let review = model.review?.review {
+                Text(review.amount ?? "").font(.largeTitle.weight(.semibold)).monospacedDigit()
+                reviewRow("Recipient", value: review.destination, address: true)
+                reviewRow("Network", value: model.networkLabel)
+            }
+            Text(result.confirmed ? "The network confirmed your transaction." : "The final result is not available yet. Check your account activity before sending again.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            if let hash = result.hash {
+                Text(hash).font(.footnote.monospaced()).textSelection(.enabled)
+                    .accessibilityIdentifier("wallet.receipt").accessibilityValue(hash)
+                Link("View transaction", destination: model.transactionURL(hash))
+            } else {
+                Link("View account activity", destination: model.explorerURL)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 20))
     }
 
     private func reviewRow(_ label: String, value: String, address: Bool = false) -> some View {
@@ -313,6 +365,13 @@ struct SocketFiWalletActionView: View {
     private var footer: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 8) {
+                if model.actionResult != nil {
+                    Button { dismiss() } label: {
+                        Text("Done").frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AccessStyle.primary)
+                } else {
                 if model.busy {
                     Text(model.phase)
                         .font(.caption)
@@ -322,8 +381,8 @@ struct SocketFiWalletActionView: View {
                     Text(isSwap ? "Swaps are unavailable for this app." : "Withdrawals are unavailable for this app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if model.busy && !model.unresolved && model.review != nil && model.session.account.signer == .evmWallet {
-                    Button("Cancel wallet approval") { model.cancelApproval() }
+                if model.busy && !model.unresolved && model.review != nil {
+                    Button(model.session.account.signer == .evmWallet ? "Cancel wallet approval" : "Cancel approval") { model.cancelApproval() }
                 }
                 Button {
                     amountFocused = false
@@ -358,6 +417,7 @@ struct SocketFiWalletActionView: View {
                     !canSubmit ||
                     (model.review.map { $0.review.expiresAt <= context.date } ?? false)
                 )
+                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
