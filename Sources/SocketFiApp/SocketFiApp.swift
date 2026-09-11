@@ -185,6 +185,14 @@ struct SocketFiSignInView: View {
                         )
                     }
 
+                    if let message = model.errorMessage {
+                        Label(message, systemImage: "exclamationmark.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.top, 14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     Text("Passkey access is available now. Connect an EVM wallet to continue with MetaMask, Coinbase Wallet, or WalletConnect.")
                         .font(.footnote)
                         .foregroundStyle(AccessStyle.secondary)

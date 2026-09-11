@@ -58,12 +58,12 @@ final class SocketFiWalletConnect {
     func sign(message: String) async throws -> String {
         guard configured else { throw SocketFiNativeError.configuration("Wallet connection is not configured.") }
         if message == "__socketfi_address__" {
-            if let address = AppKit.instance.getAddress() { return address }
+            if let address = currentAddress { return address }
             try await waitForSession()
-            guard let address = AppKit.instance.getAddress() else { throw SocketFiNativeError.invalidResponse }
+            guard let address = currentAddress else { throw SocketFiNativeError.invalidResponse }
             return address
         }
-        guard let address = AppKit.instance.getAddress() else { throw SocketFiNativeError.sessionUnavailable }
+        guard let address = currentAddress else { throw SocketFiNativeError.sessionUnavailable }
         return try await withCheckedThrowingContinuation { continuation in
             var cancellable: AnyCancellable?
             cancellable = AppKit.instance.sessionResponsePublisher
@@ -84,6 +84,12 @@ final class SocketFiWalletConnect {
         }
     }
 
+    private var currentAddress: String? {
+        if let address = AppKit.instance.getAddress() { return address }
+        guard let value = AppKit.instance.getSessions().first?.accounts.first?.address else { return nil }
+        return value.split(separator: ":").last.map(String.init)
+    }
+
     private func waitForSession() async throws {
         if !pickerPresented { AppKit.present() }
         defer { pickerPresented = false }
@@ -92,7 +98,7 @@ final class SocketFiWalletConnect {
         // emit before the app's scene finishes receiving the callback.
         for _ in 0..<180 {
             try Task.checkCancellation()
-            if AppKit.instance.getAddress() != nil { return }
+            if currentAddress != nil { return }
             try await Task.sleep(for: .milliseconds(250))
         }
         throw SocketFiNativeError.configuration("Wallet connection timed out. Try again.")
