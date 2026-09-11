@@ -347,13 +347,9 @@ struct SocketFiPasskeySheet: View {
                                     .font(.caption)
                                     .foregroundStyle(AccessStyle.secondary)
                             }
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AccessStyle.secondary)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-                        .padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, minHeight: 60)
+                        .multilineTextAlignment(.leading)
                     }
                     .background(AccessStyle.background, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border))
