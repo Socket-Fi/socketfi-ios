@@ -236,6 +236,9 @@ struct SocketFiSignInView: View {
             return
         }
         SocketFiWalletConnect.shared.configure(projectID: projectID)
+        // Present synchronously from the button gesture. WalletConnect/iOS
+        // can reject presentation initiated only from a detached async task.
+        SocketFiWalletConnect.shared.presentWalletPicker()
         Task { await model.authenticateEvm() }
     }
 
