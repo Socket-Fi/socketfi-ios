@@ -84,12 +84,18 @@ targets:
       - target: SocketFiNativeKit
       - package: reown
         product: ReownAppKit
+      - package: reown
+        product: WalletConnectNetworking
+      - package: reown
+        product: WalletConnectRelay
       - package: web3
         product: Web3
       - package: hdwallet
         product: HDWalletKit
       - package: cryptoswift
         product: CryptoSwift
+      - package: starscream
+        product: Starscream
     scheme:
       environmentVariables:
         - variable: OS_ACTIVITY_MODE

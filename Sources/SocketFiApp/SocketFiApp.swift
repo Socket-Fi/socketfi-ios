@@ -13,7 +13,12 @@ struct SocketFiApp: App {
     }
 
     var body: some Scene {
-        WindowGroup { SocketFiRootView(model: model) }
+        WindowGroup {
+            SocketFiRootView(model: model)
+                .onOpenURL { url in
+                    _ = SocketFiWalletConnect.shared.handle(url)
+                }
+        }
     }
 }
 
@@ -160,11 +165,12 @@ struct SocketFiSignInView: View {
                         onboardingMethodButton(
                             title: "Continue with EVM wallet",
                             subtitle: "MetaMask, Coinbase Wallet, and more",
-                            assetName: "SocketFiEthereum"
+                            assetName: "SocketFiEthereum",
+                            action: connectEvmWallet
                         )
                     }
 
-                    Text("Passkey access is available now. Stellar and EVM wallet sign-in are coming soon.")
+                    Text("Passkey access is available now. Connect an EVM wallet to continue with MetaMask, Coinbase Wallet, or WalletConnect.")
                         .font(.footnote)
                         .foregroundStyle(AccessStyle.secondary)
                         .multilineTextAlignment(.center)
@@ -197,14 +203,23 @@ struct SocketFiSignInView: View {
         }
     }
 
-    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String? = nil, assetName: String? = nil) -> some View {
-        Button {} label: {
+    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String? = nil, assetName: String? = nil, action: @escaping () -> Void = {}) -> some View {
+        Button(action: action) label: {
             onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, assetName: assetName, prominent: false)
         }
         .buttonStyle(AccessButtonStyle())
-        .disabled(true)
-        .opacity(0.55)
-        .accessibilityHint("This sign-in method is coming soon")
+        .accessibilityHint("Open the EVM wallet picker")
+    }
+
+    private func connectEvmWallet() {
+        model.errorMessage = nil
+        guard let projectID = Bundle.main.object(forInfoDictionaryKey: "SocketFiWalletConnectProjectID") as? String,
+              !projectID.isEmpty else {
+            model.errorMessage = "Wallet connection is not configured for this build."
+            return
+        }
+        SocketFiWalletConnect.shared.configure(projectID: projectID)
+        SocketFiWalletConnect.shared.presentWalletPicker()
     }
 
     private func onboardingMethodLabel(
