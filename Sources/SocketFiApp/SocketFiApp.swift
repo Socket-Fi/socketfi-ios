@@ -143,8 +143,8 @@ struct SocketFiSignInView: View {
                         } label: {
                             onboardingMethodLabel(
                                 title: "Continue with passkey",
-                                subtitle: "Sign in or create a smart account",
-                                systemImage: "person.badge.key.fill",
+                                subtitle: "Recommended · Fast and passwordless",
+                                systemImage: "touchid",
                                 prominent: true
                             )
                         }
@@ -153,12 +153,14 @@ struct SocketFiSignInView: View {
 
                         onboardingMethodButton(
                             title: "Continue with Stellar wallet",
-                            systemImage: "circle.hexagongrid.fill"
+                            subtitle: "Freighter, xBull, LOBSTR, and more",
+                            systemImage: "star.circle.fill"
                         )
 
                         onboardingMethodButton(
                             title: "Continue with EVM wallet",
-                            systemImage: "hexagon.fill"
+                            subtitle: "MetaMask, Coinbase Wallet, and more",
+                            systemImage: "diamond.fill"
                         )
                     }
 
@@ -195,9 +197,9 @@ struct SocketFiSignInView: View {
         }
     }
 
-    private func onboardingMethodButton(title: String, systemImage: String) -> some View {
+    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String) -> some View {
         Button {} label: {
-            onboardingMethodLabel(title: title, systemImage: systemImage, prominent: false)
+            onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, prominent: false)
         }
         .buttonStyle(AccessButtonStyle())
         .disabled(true)
@@ -255,30 +257,41 @@ struct SocketFiPasskeySheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    SocketFiBrandMark()
-                        .fill(AccessStyle.brand, style: FillStyle(eoFill: true))
-                        .frame(width: 36, height: 36)
-                        .accessibilityHidden(true)
-                    Spacer()
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack {
+                        Circle().fill(AccessStyle.primary.opacity(0.1))
+                        Image(systemName: "touchid")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(AccessStyle.brand)
+                    }
+                    .frame(width: 52, height: 52)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Passkey access")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AccessStyle.brand)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+                        Text("Continue with passkey")
+                            .font(.title2.weight(.semibold))
+                            .tracking(-0.3)
+                        Text("Use Face ID, Touch ID, or your device passcode.")
+                            .font(.subheadline)
+                            .foregroundStyle(AccessStyle.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
-                            .font(.footnote.weight(.semibold))
-                            .frame(width: 44, height: 44)
+                            .font(.footnote.weight(.bold))
+                            .frame(width: 36, height: 36)
                             .foregroundStyle(AccessStyle.secondary)
+                            .background(AccessStyle.background, in: Circle())
                     }
                     .accessibilityLabel("Close passkey sign-in")
                     .disabled(isWorking)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Welcome back")
-                        .font(.largeTitle.weight(.semibold))
-                        .tracking(-0.5)
-                    Text("Use your SocketFi passkey to sign in.")
-                        .font(.subheadline)
-                        .foregroundStyle(AccessStyle.secondary)
                 }
 
                 if let message = model.errorMessage {
@@ -291,34 +304,32 @@ struct SocketFiPasskeySheet: View {
                         .accessibilityLabel("Authentication error: \(message)")
                 }
 
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Button { authenticate(.signIn) } label: {
                         HStack(spacing: 10) {
                             if pendingMode == .signIn { ProgressView().tint(.white) }
-                            else { Image(systemName: "person.badge.key") }
+                            else { Image(systemName: "touchid") }
                             Text(pendingMode == .signIn ? "Signing in…" : "Sign in with passkey")
                                 .fontWeight(.semibold)
                         }
                         .padding(18)
                         .frame(maxWidth: .infinity, minHeight: 56)
                         .foregroundStyle(.white)
-                        .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 18))
+                        .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 16))
                     }
                     .buttonStyle(AccessButtonStyle())
                     .disabled(isWorking)
 
                     Button { model.errorMessage = nil; showingCreateAccount = true } label: {
                         HStack(spacing: 8) {
-                            if pendingMode == .signUp {
-                                ProgressView().tint(AccessStyle.brand)
-                            }
+                            if pendingMode == .signUp { ProgressView().tint(AccessStyle.brand) }
+                            else { Image(systemName: "person.crop.circle.badge.plus") }
                             Text(pendingMode == .signUp ? "Creating account…" : "Create account instead")
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, minHeight: 52)
                     }
-                    .frame(minHeight: 44)
-                    .frame(maxWidth: .infinity)
+                    .background(AccessStyle.background, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border))
                     .font(.subheadline.weight(.medium))
                     .tint(AccessStyle.brand)
                     .disabled(isWorking)
