@@ -67,21 +67,17 @@ struct SocketFiWalletView: View {
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
-                Spacer()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showQuickSettings = true } label: {
-                    Image(systemName: "gearshape.fill")
+                    Image(systemName: "slider.vertical.3")
                         .font(.title3.weight(.semibold))
-                        .frame(width: 44, height: 44)
                         .foregroundStyle(AccessStyle.brand)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Wallet settings")
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 2)
-            .background(Color.clear)
         }
         .background(AccessStyle.background.ignoresSafeArea())
         .refreshable { await model.refresh() }
@@ -206,7 +202,7 @@ struct SocketFiWalletView: View {
                 .padding(.leading, 4)
             }
         }
-        // The safe-area header reserves space for the settings control.
+        // Keep a small breathing space below the navigation toolbar.
         .padding(.top, 8)
     }
 
