@@ -15,6 +15,7 @@ import UIKit
 final class SocketFiWalletConnect {
     static let shared = SocketFiWalletConnect()
     private var configured = false
+    private var pickerPresented = false
     private var subscriptions = Set<AnyCancellable>()
 
     private init() {}
@@ -50,6 +51,7 @@ final class SocketFiWalletConnect {
 
     func presentWalletPicker() {
         guard configured else { return }
+        pickerPresented = true
         AppKit.present()
     }
 
@@ -83,15 +85,20 @@ final class SocketFiWalletConnect {
     }
 
     private func waitForSession() async throws {
-        AppKit.present()
-        try await withCheckedThrowingContinuation { continuation in
-            var cancellable: AnyCancellable?
-            cancellable = AppKit.instance.sessionSettlePublisher.first().sink { _ in
-                cancellable?.cancel()
-                continuation.resume()
+        if !pickerPresented { AppKit.present() }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await _ in AppKit.instance.sessionSettlePublisher.values { return }
+                throw SocketFiNativeError.sessionUnavailable
             }
-            if let cancellable { subscriptions.insert(cancellable) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(45))
+                throw SocketFiNativeError.configuration("Wallet connection timed out. Try again.")
+            }
+            _ = try await group.next()
+            group.cancelAll()
         }
+        pickerPresented = false
     }
 
     @discardableResult
