@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 @preconcurrency import ReownAppKit
 import WalletConnectNetworking
 import WalletConnectRelay
@@ -13,6 +14,7 @@ import UIKit
 final class SocketFiWalletConnect {
     static let shared = SocketFiWalletConnect()
     private var configured = false
+    private var subscriptions = Set<AnyCancellable>()
 
     private init() {}
 
@@ -48,6 +50,47 @@ final class SocketFiWalletConnect {
     func presentWalletPicker() {
         guard configured else { return }
         AppKit.present()
+    }
+
+    func sign(message: String) async throws -> String {
+        guard configured else { throw SocketFiNativeError.configuration("Wallet connection is not configured.") }
+        if message == "__socketfi_address__" {
+            if let address = AppKit.instance.getAddress() { return address }
+            try await waitForSession()
+            guard let address = AppKit.instance.getAddress() else { throw SocketFiNativeError.invalidResponse }
+            return address
+        }
+        guard let address = AppKit.instance.getAddress() else { throw SocketFiNativeError.sessionUnavailable }
+        return try await withCheckedThrowingContinuation { continuation in
+            var cancellable: AnyCancellable?
+            cancellable = AppKit.instance.sessionResponsePublisher
+                .first()
+                .sink { [weak self] response in
+                    cancellable?.cancel()
+                    self?.subscriptions.removeAll()
+                    switch response.result {
+                    case let .response(value):
+                        do { continuation.resume(returning: try value.get(String.self)) }
+                        catch { continuation.resume(throwing: SocketFiNativeError.invalidResponse) }
+                    case .error:
+                        continuation.resume(throwing: SocketFiNativeError.authenticationCancelled)
+                    }
+                }
+            if let cancellable { subscriptions.insert(cancellable) }
+            Task { try? await AppKit.instance.request(.personal_sign(address: address, message: message)) }
+        }
+    }
+
+    private func waitForSession() async throws {
+        AppKit.present()
+        try await withCheckedThrowingContinuation { continuation in
+            var cancellable: AnyCancellable?
+            cancellable = AppKit.instance.sessionSettlePublisher.first().sink { _ in
+                cancellable?.cancel()
+                continuation.resume()
+            }
+            if let cancellable { subscriptions.insert(cancellable) }
+        }
     }
 
     @discardableResult

@@ -126,6 +126,46 @@ public final class SocketFiNativeAccountClient {
         return session
     }
 
+    /// Authenticates an EVM wallet using the existing `/api/evm` challenge
+    /// contract. The caller owns the WalletConnect personal_sign operation.
+    public func authenticateEvm(sign: @escaping (String) async throws -> String) async throws -> SocketFiSession {
+        try Task.checkCancellation()
+        guard !isAuthenticating else { throw SocketFiNativeError.authorizationBusy }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
+        let connectedAddress = try await sign("__socketfi_address__")
+        guard connectedAddress.hasPrefix("0x"), connectedAddress.count == 42 else {
+            throw SocketFiNativeError.configuration("The connected wallet did not return a valid EVM address.")
+        }
+        let prepared: EvmPrepareResponse = try await api.post(
+            "api/evm",
+            body: EvmRequest(action: "prepare", evmAddress: connectedAddress, network: configuration.network.rawValue),
+            response: EvmPrepareResponse.self
+        )
+        guard prepared.success, !prepared.sessionId.isEmpty,
+              prepared.challengeHex.hasPrefix("0x"), prepared.challengeHex.count == 66 else {
+            throw SocketFiNativeError.invalidResponse
+        }
+        let signature = try await sign(prepared.challengeHex)
+        let completed: EvmCompleteResponse = try await api.post(
+            "api/evm",
+            body: EvmRequest(action: "submit", sessionId: prepared.sessionId, signature: signature),
+            response: EvmCompleteResponse.self
+        )
+        guard completed.success, let address = completed.smartWalletAddress, !address.isEmpty,
+              let token = completed.accessToken, !token.isEmpty else {
+            throw SocketFiNativeError.invalidResponse
+        }
+        let session = SocketFiSession(
+            account: SocketFiAccount(address: address, network: configuration.network, signer: .evmWallet),
+            accessToken: token,
+            expiresAt: TokenExpiry.date(from: token) ?? Date().addingTimeInterval(3_600)
+        )
+        try await sessionStore.save(session)
+        return session
+    }
+
     public func signOut() async {
         await sessionStore.clear()
     }
@@ -250,6 +290,26 @@ public final class SocketFiNativeAccountClient {
             )
         }
     }
+}
+
+private struct EvmRequest: Encodable {
+    let action: String
+    var evmAddress: String? = nil
+    var network: String? = nil
+    var sessionId: String? = nil
+    var signature: String? = nil
+}
+
+private struct EvmPrepareResponse: Decodable {
+    let success: Bool
+    let sessionId: String
+    let challengeHex: String
+}
+
+private struct EvmCompleteResponse: Decodable {
+    let success: Bool
+    let smartWalletAddress: String?
+    let accessToken: String?
 }
 
 private struct NativeAuthStartRequest: Encodable {
