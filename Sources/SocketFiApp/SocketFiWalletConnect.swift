@@ -1,5 +1,5 @@
 import Foundation
-import ReownAppKit
+@preconcurrency import ReownAppKit
 import WalletConnectNetworking
 import WalletConnectRelay
 import Starscream
@@ -60,7 +60,7 @@ final class SocketFiWalletConnect {
 
 private struct SocketFiWebSocketFactory: WebSocketFactory {
     func create(with url: URL) -> WebSocketConnecting {
-        let socket = WebSocket(url: url)
+        let socket = WebSocket(request: URLRequest(url: url))
         socket.callbackQueue = DispatchQueue(label: "fi.socket.socketfi.walletconnect", attributes: .concurrent)
         return socket
     }
