@@ -221,14 +221,14 @@ struct SocketFiSignInView: View {
                         .renderingMode(.original)
                         .resizable()
                         .scaledToFit()
-                        .padding(1)
+                        .frame(width: 34, height: 34)
                 } else if let systemImage {
                     Image(systemName: systemImage)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(prominent ? Color.white : AccessStyle.brand)
                 }
             }
-            .frame(width: 30, height: 30)
+            .frame(width: 34, height: 34)
             .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
