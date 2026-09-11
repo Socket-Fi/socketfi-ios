@@ -103,7 +103,6 @@ struct SocketFiLoadingView: View {
 struct SocketFiSignInView: View {
     @ObservedObject var model: SocketFiAppModel
     @State private var showingPasskey = false
-    @State private var showingCreateAccount = false
     @ScaledMetric(relativeTo: .largeTitle) private var headlineSize = 42
 
     var body: some View {
@@ -128,7 +127,7 @@ struct SocketFiSignInView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader)
 
-                    Text("A simpler way to manage your digital money. Secured with your passkey.")
+                    Text("A simpler way to manage your digital money. Choose how you want to continue.")
                         .font(.body)
                         .foregroundStyle(AccessStyle.secondary)
                         .lineSpacing(5)
@@ -137,36 +136,33 @@ struct SocketFiSignInView: View {
 
                     Spacer(minLength: 56)
 
-                    Button {
-                        model.errorMessage = nil
-                        showingCreateAccount = true
-                    } label: {
-                        Text("Create account")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 24)
-                            .padding(.vertical, 17)
-                            .padding(.horizontal, 16)
-                            .foregroundStyle(.white)
-                            .background(AccessStyle.primary, in: RoundedRectangle(cornerRadius: 16))
-                    }
-                    .buttonStyle(AccessButtonStyle())
-                    .accessibilityHint("Choose your username and secure your account with a passkey")
+                    VStack(spacing: 10) {
+                        Button {
+                            model.errorMessage = nil
+                            showingPasskey = true
+                        } label: {
+                            onboardingMethodLabel(
+                                title: "Continue with passkey",
+                                subtitle: "Sign in or create a smart account",
+                                systemImage: "person.badge.key.fill",
+                                prominent: true
+                            )
+                        }
+                        .buttonStyle(AccessButtonStyle())
+                        .accessibilityHint("Open passkey sign-in and account creation options")
 
-                    Button {
-                        model.errorMessage = nil
-                        showingPasskey = true
-                    } label: {
-                        Text("Sign in")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 56)
-                            .foregroundStyle(AccessStyle.brand)
-                            .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border))
-                    }
-                    .buttonStyle(AccessButtonStyle())
-                    .padding(.top, 10)
+                        onboardingMethodButton(
+                            title: "Continue with Stellar wallet",
+                            systemImage: "circle.hexagongrid.fill"
+                        )
 
-                    Text("No password to remember.")
+                        onboardingMethodButton(
+                            title: "Continue with EVM wallet",
+                            systemImage: "hexagon.fill"
+                        )
+                    }
+
+                    Text("Passkey access is available now. Stellar and EVM wallet sign-in are coming soon.")
                         .font(.footnote)
                         .foregroundStyle(AccessStyle.secondary)
                         .multilineTextAlignment(.center)
@@ -193,15 +189,57 @@ struct SocketFiSignInView: View {
         }
         .sheet(isPresented: $showingPasskey) {
             SocketFiPasskeySheet(model: model)
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
-        .sheet(isPresented: $showingCreateAccount) {
-            SocketFiCreateAccountView(model: model)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
+    }
+
+    private func onboardingMethodButton(title: String, systemImage: String) -> some View {
+        Button {} label: {
+            onboardingMethodLabel(title: title, systemImage: systemImage, prominent: false)
+        }
+        .buttonStyle(AccessButtonStyle())
+        .disabled(true)
+        .opacity(0.55)
+        .accessibilityHint("This sign-in method is coming soon")
+    }
+
+    private func onboardingMethodLabel(
+        title: String,
+        subtitle: String? = nil,
+        systemImage: String,
+        prominent: Bool
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(prominent ? Color.white.opacity(0.8) : AccessStyle.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .opacity(0.7)
+        }
+        .frame(maxWidth: .infinity, minHeight: prominent ? 72 : 60, alignment: .leading)
+        .padding(.horizontal, 18)
+        .foregroundStyle(prominent ? Color.white : AccessStyle.text)
+        .background(
+            prominent ? AnyShapeStyle(AccessStyle.primary) : AnyShapeStyle(AccessStyle.surface),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .overlay {
+            if !prominent {
+                RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border)
+            }
         }
     }
 }
@@ -294,7 +332,7 @@ struct SocketFiPasskeySheet: View {
         .onDisappear { authTask?.cancel() }
         .sheet(isPresented: $showingCreateAccount) {
             SocketFiCreateAccountView(model: model)
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
         }
