@@ -1,4 +1,20 @@
 name: SocketFi
+packages:
+  reown:
+    url: https://github.com/reown-com/reown-swift.git
+    branch: main
+  web3:
+    url: https://github.com/Boilertalk/Web3.swift.git
+    version: 0.8.0
+  hdwallet:
+    url: https://github.com/kailuo/HDWallet.git
+    branch: xcode26
+  cryptoswift:
+    url: https://github.com/krzyzanowskim/CryptoSwift.git
+    version: 1.8.4
+  starscream:
+    url: https://github.com/daltoniam/Starscream.git
+    version: 4.0.8
 options:
   bundleIdPrefix: fi.socket
   deploymentTarget:
@@ -41,6 +57,7 @@ targets:
         SocketFiApplicationID: $(PRODUCT_BUNDLE_IDENTIFIER)
         SocketFiNetwork: $(SOCKETFI_NETWORK)
         SocketFiRPID: socket.fi
+        SocketFiWalletConnectProjectID: $(SOCKETFI_WALLETCONNECT_PROJECT_ID)
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen: {}
@@ -56,13 +73,19 @@ targets:
           SOCKETFI_API_BASE_URL: https://api.socket.fi
           SOCKETFI_CLIENT_ID: sf_client_live_e5fr319q79wpcojnx7s7zlhwu41w
           SOCKETFI_NETWORK: TESTNET
+          SOCKETFI_WALLETCONNECT_PROJECT_ID: b3caac6f2b5c23a9134c1a14d58509d9
         Production:
           PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi
           SOCKETFI_API_BASE_URL: https://api.socket.fi
           SOCKETFI_CLIENT_ID: REPLACE_WITH_PRODUCTION_IOS_CLIENT_ID
           SOCKETFI_NETWORK: PUBLIC
+          SOCKETFI_WALLETCONNECT_PROJECT_ID: b3caac6f2b5c23a9134c1a14d58509d9
     dependencies:
       - target: SocketFiNativeKit
+      - package: ReownAppKit
+      - package: Web3
+      - package: HDWalletKit
+      - package: CryptoSwift
     scheme:
       environmentVariables:
         - variable: OS_ACTIVITY_MODE
