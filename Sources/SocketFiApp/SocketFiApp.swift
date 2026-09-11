@@ -204,7 +204,9 @@ struct SocketFiSignInView: View {
     }
 
     private func onboardingMethodButton(title: String, subtitle: String, systemImage: String? = nil, assetName: String? = nil, action: @escaping () -> Void = {}) -> some View {
-        Button(action: action) label: {
+        Button {
+            action()
+        } label: {
             onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, assetName: assetName, prominent: false)
         }
         .buttonStyle(AccessButtonStyle())
