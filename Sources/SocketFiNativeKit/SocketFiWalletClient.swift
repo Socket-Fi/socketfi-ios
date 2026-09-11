@@ -72,9 +72,13 @@ public struct SocketFiProjectCapabilities: Decodable, Sendable {
         let normalizedFunction = function.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return networks.contains(network) && allowedInvocations.contains {
-            $0.network == network &&
-            $0.contractId.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == normalizedContract &&
-            $0.functions.contains { $0 == normalizedFunction }
+            guard $0.network == network, $0.functions.contains(normalizedFunction) else { return false }
+            let ruleContract = $0.contractId.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if ruleContract == "*" {
+                return normalizedFunction == "transfer" && $0.functions == ["transfer"] &&
+                    SocketFiXDR.isAddress(normalizedContract, contractOnly: true)
+            }
+            return ruleContract == normalizedContract
         }
     }
 }
@@ -163,7 +167,12 @@ public struct SocketFiWalletClient {
             contract: contract.uppercased()
         )
 
-        _ = try await api.post("api/wallet/tokens", body: payload, bearerToken: session.accessToken, response: WatchlistTokenResponse.self)
+        let result = try await api.post("api/wallet/tokens", body: payload, bearerToken: session.accessToken, response: WatchlistTokenResponse.self)
+        guard result.success, result.network == configuration.network,
+              result.walletAddress == session.account.address,
+              result.token.contract == contract.uppercased(), (0...18).contains(result.token.decimals) else {
+            throw SocketFiNativeError.invalidResponse
+        }
     }
 
     public func capabilities() async throws -> SocketFiProjectCapabilities {
@@ -229,5 +238,8 @@ private struct WatchlistTokenRequest: Encodable {
 }
 private struct WatchlistTokenResponse: Decodable {
     let success: Bool
-    let token: SocketFiToken
+    struct Metadata: Decodable { let contract: String; let symbol: String; let decimals: Int }
+    let network: SocketFiNetwork
+    let walletAddress: String
+    let token: Metadata
 }

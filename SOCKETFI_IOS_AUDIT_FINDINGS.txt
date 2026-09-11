@@ -1,0 +1,142 @@
+SocketFi native iOS audit and implementation brief
+=====================================================
+
+Scope
+-----
+Read-only audit of socketfi-smart-account, socketfi-sdk, socketfi-app, and the
+native iOS integration in mutual-planning-expense-files (Paktly). No contract
+source or existing contract implementation is to be changed for this work.
+
+Executive decision
+------------------
+Build a new socketfi-ios SwiftUI application and a reusable SocketFiNativeKit
+Swift package. Present passkey, EVM wallet, and Stellar wallet as onboarding
+options, but allow exactly one active owner signer per account. Complete the
+passkey implementation first. Keep EVM and Stellar adapters behind explicit
+capability boundaries until their native API binding and wallet interoperability
+are production-tested.
+
+Smart-account findings
+----------------------
+The Soroban account supports passkey (P-256/WebAuthn), Stellar ed25519, EVM
+secp256k1, guardian BLS recovery, signer rotation, pause/unpause, and scoped
+ed25519 sessions. Session policies bind contract/function, recipient and asset
+spending limits, expiry, usage and the account session epoch.
+
+Important launch gate: account construction independently accepts passkey,
+Stellar and EVM configuration and appears to enforce at least one owner rather
+than exactly one. Rotation and recovery explicitly clear all active signers and
+install one replacement. The mobile product will therefore expose all three
+choices while selecting one signer for a given account; this contract invariant
+must be resolved and tested before production, without changing it in this
+implementation phase.
+
+The contract checkout has no Cargo manifests, so reproducible contract builds
+and tests are currently unavailable. This is a protocol-release blocker, not an
+iOS implementation task.
+
+Paktly native passkey findings
+------------------------------
+Paktly proves the native passkey path works with the existing API:
+
+  /api/native/auth/start
+  /oauth/init-auth
+  AuthenticationServices registration/assertion
+  /oauth/verify-auth
+  /oauth/create-wallet (new-account proof)
+  /api/native/transactions/start
+  /api/tx/transaction-intents/init
+  /api/tx/transaction-intents/sign or sign-and-submit
+
+It correctly converts Apple credentials to SimpleWebAuthn-compatible JSON and
+uses the SocketFi RP ID and associated-domain configuration.
+
+It is not yet a reusable production SDK: it supports passkeys only, keeps the
+account in memory, guesses token expiry, has generic errors, no transaction
+review model, no native auth/signing test suite, no demonstrated production
+transaction caller, and can crash on concurrent authorization attempts.
+
+Native API findings
+-------------------
+The passkey-native API validates client, application, platform, network, RP ID,
+origin and temporary single-use state. The checked-in Paktly registry has an
+empty allowedInvocations array, which would reject native transaction starts in
+this source configuration. Deployment configuration must be verified.
+
+EVM auth/transaction routes support proof of possession and one-time Redis
+sessions, but do not consistently apply native project/application binding and
+invocation policy. Stellar authentication/transaction sessions use process-local
+Maps and must move to shared storage for a multi-instance production service.
+
+For production, all signer types need additive project-bound native endpoints or
+equivalent policy enforcement, rate limits, stable error codes, idempotency,
+authoritative token expiry, refresh/revocation, exact account binding, and a
+server-derived transaction review descriptor. Existing consumers must remain
+backward-compatible.
+
+SocketFi app feature map
+------------------------
+Active product surfaces: passkey/EVM/Stellar onboarding; portfolio and token
+balances; watched assets; receive/address/QR; send and withdrawal; deposits;
+account-indexer history; Aquarius swaps and classic/concentrated liquidity;
+Blend market discovery, supply, withdraw, borrow, repay and collateral;
+CCTP bridge and explorer; sessions and revocation; guardians; automations for
+disbursement, DCA, rebalance and Amplidex strategies; settings and network
+selection; dApp hub.
+
+Not production-ready or not active: Soroswap is listed but currently renders
+Integration unavailable; social intent uses static mock data; connections and
+rewards/quests are not active routes; loyalty data is a placeholder. These must
+not be presented as native iOS capabilities until backed by verified APIs.
+
+Native implementation plan
+--------------------------
+Create socketfi-ios as an independent repository with iOS 17+ SwiftUI and a
+SocketFiNativeKit package. Modules should cover configuration, networking,
+Keychain storage, typed API contracts, passkey signer, external EVM/Stellar
+signers, transaction coordination, wallet, activity, security, dApps, bridge,
+automations and settings.
+
+Use separate TESTNET and PUBLIC schemes, bundle IDs, client IDs, Keychain
+namespaces, caches and API/indexer configuration. Never embed an indexer API key
+or private wallet key in the application.
+
+The passkey vertical slice is:
+
+  start native auth -> request WebAuthn options -> AuthenticationServices
+  registration/assertion -> verify -> create-wallet proof when needed ->
+  persist session securely -> restore account -> prepare/simulate transaction ->
+  show trusted review -> sign -> submit -> poll authoritative confirmation.
+
+The transaction state machine must model draft, preparing, review, awaiting
+signer, signed, submitting, confirmed, failed, expired and cancelled. Amounts
+remain atomic integer strings or a checked decimal type; no floating-point value
+may authorize funds.
+
+Delivery sequence
+-----------------
+0. Protocol/API gates: resolve the documented signer invariant, restore contract
+   buildability, register SocketFi iOS apps, validate associated domains, and
+   harden native API/session behavior.
+1. Passkey-first testnet shell: SwiftUI navigation, Keychain lifecycle, native
+   passkey sign-up/sign-in, account restoration, balances, receive, activity and
+   one allowlisted transfer.
+2. Security: transaction review, sessions, guardians, recovery and signer
+   rotation.
+3. EVM and Stellar native adapters after API hardening and physical-device wallet
+   compatibility testing.
+4. Aquarius swaps, deposits and CCTP.
+5. Blend and liquidity features.
+6. Automations, then any verified social/connections/rewards features.
+7. External security review, TestFlight, staged PUBLIC release and operational
+   runbooks.
+
+Validation requirements
+------------------------
+Test on real devices for passkey registration/assertion, cancellation, wrong RP,
+wrong application/network, replayed/expired challenges, app termination,
+account recovery, transaction tampering, duplicate submission and confirmation
+failure. Add API contract tests, multi-instance Redis tests, signer-specific
+TESTNET end-to-end tests, UI tests for approval/recovery, amount/overflow tests,
+and redacted telemetry checks. Do not automate PUBLIC-network state changes.
+

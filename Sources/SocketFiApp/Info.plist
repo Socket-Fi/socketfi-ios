@@ -2,11 +2,64 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>SocketFi</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fi.socket.socketfi.walletconnect</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>socketfi</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>metamask</string>
+		<string>trust</string>
+		<string>cbwallet</string>
+		<string>rainbow</string>
+		<string>uniswap</string>
+		<string>safe</string>
+		<string>zerion</string>
+		<string>rabby</string>
+	</array>
+	<key>SocketFiAPIBaseURL</key>
+	<string>$(SOCKETFI_API_BASE_URL)</string>
+	<key>SocketFiApplicationID</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>SocketFiClientID</key>
+	<string>$(SOCKETFI_CLIENT_ID)</string>
+	<key>SocketFiNetwork</key>
+	<string>$(SOCKETFI_NETWORK)</string>
+	<key>SocketFiRPID</key>
+	<string>socket.fi</string>
+	<key>SocketFiWalletConnectProjectID</key>
+	<string>$(SOCKETFI_WALLETCONNECT_PROJECT_ID)</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>

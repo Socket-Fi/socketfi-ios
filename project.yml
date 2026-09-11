@@ -58,6 +58,15 @@ targets:
         SocketFiNetwork: $(SOCKETFI_NETWORK)
         SocketFiRPID: socket.fi
         SocketFiWalletConnectProjectID: $(SOCKETFI_WALLETCONNECT_PROJECT_ID)
+        LSApplicationQueriesSchemes:
+          - metamask
+          - trust
+          - cbwallet
+          - rainbow
+          - uniswap
+          - safe
+          - zerion
+          - rabby
         CFBundleURLTypes:
           - CFBundleURLName: fi.socket.socketfi.walletconnect
             CFBundleURLSchemes:
@@ -118,3 +127,42 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi.tests
         GENERATE_INFOPLIST_FILE: YES
+  SocketFiDeviceFlowTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/SocketFiDeviceFlowTests
+    dependencies:
+      - target: SocketFi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi.deviceflowtests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: SocketFi
+        CODE_SIGN_STYLE: Automatic
+  SocketFiAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/SocketFiAppTests
+    dependencies:
+      - target: SocketFi
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fi.socket.socketfi.apptests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/SocketFi.app/SocketFi
+        BUNDLE_LOADER: $(TEST_HOST)
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  SocketFiDeviceFlow:
+    build:
+      targets:
+        SocketFi: all
+        SocketFiDeviceFlowTests: [test]
+        SocketFiAppTests: [test]
+    test:
+      config: Testnet
+      targets:
+        - SocketFiDeviceFlowTests
+        - SocketFiAppTests

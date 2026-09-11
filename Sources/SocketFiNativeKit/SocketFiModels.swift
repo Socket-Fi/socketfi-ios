@@ -78,11 +78,13 @@ public struct SocketFiSession: Codable, Equatable, Sendable {
     public let account: SocketFiAccount
     public let accessToken: String
     public let expiresAt: Date
+    public let evmOwnerAddress: String?
 
-    public init(account: SocketFiAccount, accessToken: String, expiresAt: Date) {
+    public init(account: SocketFiAccount, accessToken: String, expiresAt: Date, evmOwnerAddress: String? = nil) {
         self.account = account
         self.accessToken = accessToken
         self.expiresAt = expiresAt
+        self.evmOwnerAddress = evmOwnerAddress
     }
 
     public var isExpired: Bool { expiresAt <= Date() }
@@ -210,4 +212,9 @@ extension Data {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
+}
+
+/// Presentation milestones only; these do not grant account authorization.
+public enum SocketFiEvmAuthStage: Equatable, Sendable {
+    case connecting, preparing, awaitingSignature, submitting
 }

@@ -32,6 +32,13 @@ final class SocketFiWalletModel: ObservableObject {
     @Published var review: SocketFiTransactionRequest?
     @Published var phase = ""
     @Published var hideBalances = false
+    private var approvalTask: Task<Void, Never>?
+    var approvalTitle: String { session.account.signer == .evmWallet ? "Approve in wallet" : "Approve with passkey" }
+    func startApproval() {
+        guard approvalTask == nil else { return }
+        approvalTask = Task { await approve(); approvalTask = nil }
+    }
+    func cancelApproval() { if !unresolved { approvalTask?.cancel() } }
 
     init(session: SocketFiSession, configuration: SocketFiConfiguration, signer: SocketFiNativeAccountClient) {
         self.session = session
@@ -130,18 +137,32 @@ final class SocketFiWalletModel: ObservableObject {
 
     func approve() async {
         guard !busy, !unresolved, let request = review else { return }
-        busy = true; actionError = nil; phase = "Approve with your passkey…"
+        busy = true; actionError = nil; phase = session.account.signer == .evmWallet ? "Approve in your EVM wallet…" : "Approve with your passkey…"
         defer { busy = false; phase = "" }
         do {
-            let result = try await signer.authorizePasskeyTransaction(request, onSubmission: { [self] in
+            let submitted: @MainActor () -> Void = { [self] in
                 markUnresolved(true)
                 phase = "Waiting for network confirmation…"
                 receipt = Receipt(title: request.review.title, hash: nil, confirmed: false)
-            }, confirmReview: { _ in true })
+            }
+            let result: SocketFiTransactionResult
+            if session.account.signer == .evmWallet {
+                let connection = SocketFiWalletConnect.shared
+                connection.presentWalletPicker()
+                defer { connection.finishAttempt() }
+                result = try await signer.authorizeEvmTransaction(request, onSubmission: submitted) {
+                    try await connection.sign(message: $0)
+                }
+            } else {
+                result = try await signer.authorizePasskeyTransaction(request, onSubmission: submitted, confirmReview: { _ in true })
+            }
             markUnresolved(false)
             receipt = Receipt(title: request.review.title, hash: result.id, confirmed: true)
             review = nil; action = nil
             await refresh()
+        } catch is CancellationError {
+            actionError = "Approval cancelled. Nothing was submitted."
+            review = nil
         } catch SocketFiNativeError.authenticationCancelled {
             actionError = "Approval cancelled. Nothing was submitted."
             review = nil

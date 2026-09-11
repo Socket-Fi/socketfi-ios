@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 public final class SocketFiNativeAccountClient {
@@ -11,10 +12,11 @@ public final class SocketFiNativeAccountClient {
     public init(
         configuration: SocketFiConfiguration,
         passkey: SocketFiPasskeySigner = SocketFiPasskeySigner(),
-        sessionStore: SocketFiSessionStore? = nil
+        sessionStore: SocketFiSessionStore? = nil,
+        urlSession: URLSession = .shared
     ) {
         self.configuration = configuration
-        self.api = SocketFiAPIClient(configuration: configuration)
+        self.api = SocketFiAPIClient(configuration: configuration, session: urlSession)
         self.passkey = passkey
         self.sessionStore = sessionStore ?? SocketFiSessionStore(
             service: "fi.socket.socketfi.\(configuration.applicationID).\(configuration.clientID).\(configuration.network.rawValue).\(configuration.relyingPartyID)"
@@ -128,46 +130,149 @@ public final class SocketFiNativeAccountClient {
 
     /// Authenticates an EVM wallet using the existing `/api/evm` challenge
     /// contract. The caller owns the WalletConnect personal_sign operation.
-    public func authenticateEvm(sign: @escaping (String) async throws -> String) async throws -> SocketFiSession {
+    public func authenticateEvm(
+        onStage: (SocketFiEvmAuthStage) -> Void = { _ in },
+        sign: @escaping (String) async throws -> String
+    ) async throws -> SocketFiSession {
         try Task.checkCancellation()
         guard !isAuthenticating else { throw SocketFiNativeError.authorizationBusy }
         isAuthenticating = true
         defer { isAuthenticating = false }
 
-        let connectedAddress = try await sign("__socketfi_address__")
-        guard connectedAddress.hasPrefix("0x"), connectedAddress.count == 42 else {
+        onStage(.connecting)
+        let connectedAddress = try await sign("__socketfi_address__").lowercased()
+        guard connectedAddress.range(of: "^0x[0-9a-f]{40}$", options: .regularExpression) != nil else {
             throw SocketFiNativeError.configuration("The connected wallet did not return a valid EVM address.")
         }
+        onStage(.preparing)
+        NSLog("[SocketFiEVM] stage=prepare_started")
         let prepared: EvmPrepareResponse = try await api.post(
             "api/evm",
             body: EvmRequest(action: "prepare", evmAddress: connectedAddress, network: configuration.network.rawValue),
             response: EvmPrepareResponse.self
         )
         guard prepared.success, !prepared.sessionId.isEmpty,
-              prepared.challengeHex.hasPrefix("0x"), prepared.challengeHex.count == 66 else {
+              prepared.challengeHex.range(of: "^0x[0-9a-fA-F]{64}$", options: .regularExpression) != nil,
+              prepared.network == configuration.network.rawValue,
+              prepared.evmAddress.lowercased() == connectedAddress,
+              prepared.signingMethod == "personal_sign",
+              prepared.expiresInMs > 0 else {
             throw SocketFiNativeError.invalidResponse
         }
+        NSLog("[SocketFiEVM] stage=prepare_completed")
+        let expiresAt = Date().addingTimeInterval(Double(prepared.expiresInMs) / 1000)
+        try Task.checkCancellation()
+        onStage(.awaitingSignature)
         let signature = try await sign(prepared.challengeHex)
-        let completed: EvmCompleteResponse = try await api.post(
-            "api/evm",
-            body: EvmRequest(action: "submit", sessionId: prepared.sessionId, signature: signature),
-            response: EvmCompleteResponse.self
-        )
-        guard completed.success, let address = completed.smartWalletAddress, !address.isEmpty,
-              let token = completed.accessToken, !token.isEmpty else {
+        try Task.checkCancellation()
+        guard Date() < expiresAt else {
+            throw SocketFiNativeError.configuration("The signing challenge expired. Start EVM sign-in again.")
+        }
+        guard signature.range(of: "^0x[0-9a-fA-F]{130}$", options: .regularExpression) != nil else {
+            throw SocketFiNativeError.configuration("The wallet returned an invalid signature. Reconnect and retry.")
+        }
+        onStage(.submitting)
+        NSLog("[SocketFiEVM] stage=submit_started")
+        let completed: EvmCompleteResponse
+        do {
+            completed = try await api.post(
+                "api/evm",
+                body: EvmRequest(action: "submit", sessionId: prepared.sessionId, signature: signature),
+                response: EvmCompleteResponse.self
+            )
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as URLError {
+            if error.code == .cancelled { throw CancellationError() }
+            throw SocketFiNativeError.configuration("SocketFi could not confirm account creation. The server may still finish. Do not repeat the old signature; sign in again with the same wallet after checking your connection.")
+        }
+        try Task.checkCancellation()
+        guard completed.network == configuration.network.rawValue,
+              completed.evmAddress.lowercased() == connectedAddress,
+              completed.verified, completed.authMethod == "evm",
+              completed.success, let address = completed.smartWalletAddress, !address.isEmpty,
+              let token = completed.accessToken, !token.isEmpty,
+              let expiry = TokenExpiry.date(from: token), expiry > Date() else {
             throw SocketFiNativeError.invalidResponse
         }
         let session = SocketFiSession(
             account: SocketFiAccount(address: address, network: configuration.network, signer: .evmWallet),
             accessToken: token,
-            expiresAt: TokenExpiry.date(from: token) ?? Date().addingTimeInterval(3_600)
+            expiresAt: expiry, evmOwnerAddress: connectedAddress
         )
+        try Task.checkCancellation()
         try await sessionStore.save(session)
+        NSLog("[SocketFiEVM] stage=session_persisted")
         return session
     }
 
     public func signOut() async {
         await sessionStore.clear()
+    }
+
+    public func authorizeEvmTransaction(
+        _ request: SocketFiTransactionRequest,
+        onSubmission: @escaping @MainActor () -> Void = {},
+        sign: @escaping (String) async throws -> String
+    ) async throws -> SocketFiTransactionResult {
+        guard !isAuthenticating else { throw SocketFiNativeError.authorizationBusy }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        guard let session = try await restoreSession(), session.account.signer == .evmWallet else {
+            throw SocketFiNativeError.sessionUnavailable
+        }
+        guard request.submit, request.review.source == session.account.address,
+              request.review.network == configuration.network else { throw SocketFiNativeError.invalidResponse }
+        guard request.review.expiresAt > Date() else {
+            throw SocketFiNativeError.configuration("The review expired. Review the transaction again.")
+        }
+        try Task.checkCancellation()
+        let address = try await sign("__socketfi_address__").lowercased()
+        guard address.range(of: "^0x[0-9a-f]{40}$", options: .regularExpression) != nil,
+              session.evmOwnerAddress == nil || session.evmOwnerAddress?.lowercased() == address else {
+            throw SocketFiNativeError.configuration("Choose the EVM account that owns this SocketFi wallet.")
+        }
+        guard request.review.expiresAt > Date() else { throw SocketFiNativeError.configuration("The review expired. Review the withdrawal again.") }
+        // The API independently verifies the EVM owner's mapping to walletAddress.
+        // Older stored sessions may not contain the optional owner-address field.
+        let prepared: EvmTransactionPrepared = try await api.post("api/evm-transactions", body: EvmTransactionPrepare(
+            action: "prepare", network: configuration.network.rawValue, evmAddress: address,
+            walletAddress: session.account.address, contractId: request.contractID,
+            callFunction: .init(name: request.functionName), argsXdr: request.argsXDR
+        ), bearerToken: session.accessToken, response: EvmTransactionPrepared.self)
+        guard prepared.success, !prepared.sessionId.isEmpty,
+              prepared.network == configuration.network.rawValue,
+              prepared.walletAddress == session.account.address,
+              prepared.evmAddress.lowercased() == address,
+              prepared.signingMethod == "personal_sign", prepared.expiresInMs > 0,
+              prepared.signaturePayloadHex.range(of: "^0x[0-9a-fA-F]{64}$", options: .regularExpression) != nil else {
+            throw SocketFiNativeError.invalidResponse
+        }
+        let expiry = min(request.review.expiresAt, Date().addingTimeInterval(Double(prepared.expiresInMs) / 1000))
+        try Task.checkCancellation()
+        guard expiry > Date() else { throw SocketFiNativeError.invalidResponse }
+        NSLog("[SocketFiWithdrawal] stage=prepared")
+        let signature = try await sign(prepared.signaturePayloadHex)
+        try Task.checkCancellation()
+        guard expiry > Date(), signature.range(of: "^0x[0-9a-fA-F]{130}$", options: .regularExpression) != nil else {
+            throw SocketFiNativeError.configuration("The approval expired or the wallet returned an invalid signature. Review again.")
+        }
+        onSubmission()
+        NSLog("[SocketFiWithdrawal] stage=submitting")
+        let result: EvmTransactionCompleted
+        do {
+            result = try await api.post("api/evm-transactions", body: EvmTransactionSubmit(
+                action: "submit", sessionId: prepared.sessionId, signature: signature
+            ), bearerToken: session.accessToken, response: EvmTransactionCompleted.self)
+        } catch { throw SocketFiNativeError.submissionUncertain(hash: nil) }
+        guard result.success, result.data.walletAddress == session.account.address,
+              result.data.evmAddress.lowercased() == address,
+              result.data.contractId == request.contractID,
+              result.data.functionName == request.functionName else {
+            throw SocketFiNativeError.submissionUncertain(hash: nil)
+        }
+        let confirmed = try SocketFiTransactionResult.confirmedSubmission(hash: result.data.txHash, status: result.data.status)
+        NSLog("[SocketFiWithdrawal] stage=confirmed")
+        return confirmed
     }
 
     public func authorizePasskeyTransaction(
@@ -301,12 +406,20 @@ private struct EvmRequest: Encodable {
 }
 
 private struct EvmPrepareResponse: Decodable {
+    let network: String
+    let evmAddress: String
+    let signingMethod: String
+    let expiresInMs: Int
     let success: Bool
     let sessionId: String
     let challengeHex: String
 }
 
 private struct EvmCompleteResponse: Decodable {
+    let network: String
+    let evmAddress: String
+    let verified: Bool
+    let authMethod: String
     let success: Bool
     let smartWalletAddress: String?
     let accessToken: String?
@@ -420,4 +533,22 @@ private enum TokenExpiry {
               let seconds = object["exp"] as? TimeInterval else { return nil }
         return Date(timeIntervalSince1970: seconds)
     }
+}
+
+private struct EvmTransactionPrepare: Encodable {
+    struct Function: Encodable { let name: String }
+    let action, network, evmAddress, walletAddress, contractId: String
+    let callFunction: Function
+    let argsXdr: [String]
+}
+private struct EvmTransactionPrepared: Decodable {
+    let success: Bool
+    let sessionId, network, evmAddress, walletAddress, signingMethod, signaturePayloadHex: String
+    let expiresInMs: Int
+}
+private struct EvmTransactionSubmit: Encodable { let action, sessionId, signature: String }
+private struct EvmTransactionCompleted: Decodable {
+    struct ResultData: Decodable { let txHash, status, walletAddress, evmAddress, contractId, functionName: String }
+    let success: Bool
+    let data: ResultData
 }
