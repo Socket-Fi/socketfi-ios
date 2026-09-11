@@ -87,7 +87,7 @@ targets:
       - package: reown
         product: WalletConnectNetworking
       - package: reown
-        product: WalletConnectRelay
+        product: WalletConnect
       - package: web3
         product: Web3
       - package: hdwallet
