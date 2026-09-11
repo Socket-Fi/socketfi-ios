@@ -22,8 +22,8 @@ struct SocketFiWalletView: View {
     private let walletBanners: [WalletPromoBanner] = [
         WalletPromoBanner(
             icon: "sparkles",
-            title: "Smart account with policy controls",
-            subtitle: "Use passkeys, delegations, and policy rules to spend safely.",
+            title: "Your smart account",
+            subtitle: "Manage assets and review every payment before approving.",
             action: .delegation
         ),
         WalletPromoBanner(
@@ -70,13 +70,14 @@ struct SocketFiWalletView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showQuickSettings = true } label: {
-                    Image(systemName: "slider.vertical.3")
+                    Image(systemName: "gearshape")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(AccessStyle.brand)
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Wallet settings")
+                .accessibilityIdentifier("wallet.settings")
             }
         }
         .background(AccessStyle.background.ignoresSafeArea())
@@ -130,7 +131,7 @@ struct SocketFiWalletView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("You can sign back in with your passkey anytime.")
+            Text("You can sign back in using your account’s passkey or wallet.")
         }
     }
 
@@ -238,7 +239,7 @@ struct SocketFiWalletView: View {
                     .font(.system(.largeTitle, design: .rounded).weight(.bold))
                     .monospacedDigit().contentTransition(.numericText())
                     .minimumScaleFactor(0.75).lineLimit(1)
-                Text(model.snapshot == nil ? "Sign in and load your balances" : "Total estimated USD value")
+                Text(model.snapshot == nil ? (model.loading ? "Loading your balances…" : "Balances unavailable. Pull down to refresh.") : "Total estimated USD value")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
@@ -256,6 +257,9 @@ struct SocketFiWalletView: View {
                 HStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Text(model.session.account.address)
+                            .accessibilityLabel("Contract account")
+                            .accessibilityValue(model.session.account.address)
+                            .accessibilityIdentifier("wallet.address")
                             .font(.footnote.weight(.medium))
                             .monospaced()
                             .truncationMode(.middle)
@@ -266,15 +270,16 @@ struct SocketFiWalletView: View {
                         Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
                             Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
                                 .font(.subheadline.weight(.semibold))
-                                .frame(width: 18, height: 18)
+                                .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(copiedAddress ? "Address copied" : "Copy account address")
+                        .accessibilityIdentifier("wallet.copyAddress")
                     }
                     .font(.footnote.weight(.medium))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial, in: Capsule())
-                    .accessibilityLabel("Contract account")
                     .frame(maxWidth: .infinity)
                 }
             }
@@ -304,7 +309,7 @@ struct SocketFiWalletView: View {
                 ContentUnavailableView(
                     usingCustomWatchlist ? "No watched assets selected" : "Your wallet starts here",
                     systemImage: usingCustomWatchlist ? "eye.slash" : "wallet.pass",
-                    description: Text(usingCustomWatchlist ? "Open quick settings and add at least one asset to your watchlist." : "Deposit funds to start using your account.")
+                    description: Text(usingCustomWatchlist ? "Open wallet settings and add at least one asset to your watchlist." : "Deposit funds to start using your account.")
                 )
             } else {
                 VStack(spacing: 0) {
@@ -388,6 +393,8 @@ struct SocketFiWalletView: View {
             Link(destination: receipt.hash.map(model.transactionURL) ?? model.explorerURL) {
                 Label("View on explorer", systemImage: "arrow.up.right.square").font(.subheadline)
             }
+            .accessibilityIdentifier("wallet.receipt")
+            .accessibilityValue(receipt.hash ?? "Confirmation pending")
             if model.unresolved {
                 Button("I've checked my account activity") { confirmActivityChecked = true }.font(.footnote)
             } else { Button("Dismiss") { model.receipt = nil }.font(.footnote) }
@@ -423,13 +430,13 @@ struct SocketFiWalletView: View {
     }
 
     private func toggleWatchlist(_ tokenID: String) {
+        if !usingCustomWatchlist { watchlistTokenIDs = Set(model.tokens.map(\.id)) }
         usingCustomWatchlist = true
         if watchlistTokenIDs.contains(tokenID) {
             watchlistTokenIDs.remove(tokenID)
         } else {
             watchlistTokenIDs.insert(tokenID)
         }
-        if watchlistTokenIDs.isEmpty { usingCustomWatchlist = false }
         persistWatchlist()
     }
 
@@ -461,19 +468,7 @@ struct SocketFiWalletView: View {
             return
         }
 
-        contractPreviewState = .validating
-        Task {
-            if model.capabilities == nil {
-                do {
-                    try await model.refresh()
-                } catch { }
-            }
-            if contractInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() != normalized {
-                return
-            }
-            let preview = buildContractPreview(for: normalized)
-            contractPreviewState = .ready(preview)
-        }
+        contractPreviewState = .ready(buildContractPreview(for: normalized))
     }
 
     private func buildContractPreview(for contract: String) -> ContractPreview {
@@ -520,6 +515,7 @@ struct SocketFiWalletView: View {
             do {
                 try await model.addTokenToWatchlist(contract: preview.contract)
                 await MainActor.run {
+                    if !usingCustomWatchlist { watchlistTokenIDs = Set(model.tokens.map(\.id)) }
                     usingCustomWatchlist = true
                     watchlistTokenIDs.insert(preview.contract)
                     persistWatchlist()
@@ -538,6 +534,10 @@ struct SocketFiWalletView: View {
     private var quickSettingsSheet: some View {
         NavigationStack {
             List {
+                Section("Display") {
+                    LabeledContent("Network", value: model.networkLabel)
+                    Toggle("Hide balances", isOn: $model.hideBalances)
+                }
                 if !model.tokens.isEmpty {
                     Section("Watchlist") {
                         ForEach(model.tokens) { token in
@@ -577,6 +577,7 @@ struct SocketFiWalletView: View {
                 Section("Add custom asset by contract") {
                     HStack(spacing: 10) {
                         TextField("Contract address", text: $contractInput)
+                            .accessibilityIdentifier("asset.contract")
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.footnote)
@@ -587,6 +588,11 @@ struct SocketFiWalletView: View {
                                 }
                             }
                             .onSubmit { inspectContractAddress() }
+                        PasteButton(payloadType: String.self) { values in
+                            if let value = values.first { contractInput = value.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        }
+                        .labelStyle(.iconOnly)
+                        .accessibilityLabel("Paste token contract")
                         Button {
                             inspectContractAddress()
                         } label: {
@@ -624,7 +630,7 @@ struct SocketFiWalletView: View {
                                     Text(preview.contract).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
-                                Image(systemName: "checkmark.seal.fill")
+                                Image(systemName: preview.inWallet ? "checkmark.circle" : "doc.text.magnifyingglass")
                                     .font(.subheadline)
                                     .foregroundStyle(AccessStyle.brand)
                             }
@@ -706,6 +712,8 @@ struct SocketFiWalletView: View {
                 }
             }
             .navigationTitle("Wallet settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .presentationDragIndicator(.visible)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { showQuickSettings = false }
@@ -725,7 +733,7 @@ struct SocketFiWalletView: View {
         do {
             let decoded = try JSONDecoder().decode([String].self, from: raw)
             watchlistTokenIDs = Set(decoded.map { $0.uppercased() })
-            usingCustomWatchlist = !decoded.isEmpty
+            usingCustomWatchlist = true
         } catch {
             usingCustomWatchlist = false
             watchlistTokenIDs.removeAll()
@@ -734,7 +742,7 @@ struct SocketFiWalletView: View {
 
     private func persistWatchlist() {
         let key = watchlistStorageKey
-        if !usingCustomWatchlist || watchlistTokenIDs.isEmpty {
+        if !usingCustomWatchlist {
             UserDefaults.standard.removeObject(forKey: key)
             return
         }
@@ -805,19 +813,13 @@ private struct ContractPreview: Equatable {
     let shouldBlockAdd: Bool
 
     var statusMessage: String {
-        switch (inWallet, transferEnabled) {
-        case (_, .some(true)):
-            return inWallet
-                ? "Token is in your wallet snapshot and available for this app."
-                : "Token is valid and currently enabled for transfer in this app."
-        case (_, .some(false)):
-            return inWallet
-                ? "Token is loaded, but transfer is not yet enabled for this app."
-                : "This contract is not enabled for transfer with this app. It will still be watchable."
-        case (_, .none):
-            return inWallet
-                ? "Token is in your wallet snapshot. Refresh to verify action permissions."
-                : "Action permissions are still syncing. Add to watchlist to keep this contract pinned."
+        guard inWallet else {
+            return "Address format is valid. Token details will be checked on this network when you add it."
+        }
+        switch transferEnabled {
+        case .some(true): return "Token details are loaded and transfers are available for this app."
+        case .some(false): return "Token details are loaded. Transfers are not enabled for this app."
+        case .none: return "Token details are loaded. Refresh to check transfer permissions."
         }
     }
 }

@@ -3,16 +3,24 @@ import SocketFiNativeKit
 
 struct SocketFiWalletActionView: View {
     @ObservedObject var model: SocketFiWalletModel
+    @ObservedObject private var connection = SocketFiWalletConnect.shared
     let action: SocketFiWalletModel.Action
     @Environment(\.dismiss) private var dismiss
     @FocusState private var amountFocused: Bool
+    @FocusState private var recipientFocused: Bool
 
     private var isSwap: Bool { action == .swap }
     private var permitted: Bool { isSwap ? model.supportsSwaps : model.canWithdraw }
-    private var hasRecipient: Bool { SocketFiXDR.isAddress(model.recipient) }
+    private var hasRecipient: Bool { SocketFiXDR.isAddress(model.recipient.trimmingCharacters(in: .whitespacesAndNewlines)) && model.recipient.trimmingCharacters(in: .whitespacesAndNewlines) != model.session.account.address }
+
+    private var amountError: String? {
+        guard !model.amount.isEmpty, let token = model.from else { return nil }
+        do { _ = try SocketFiWalletClient.spendAmount(model.amount, token: token); return nil }
+        catch { return error.localizedDescription }
+    }
 
     private var canSubmit: Bool {
-        guard !model.busy, !model.unresolved, permitted, !model.amount.isEmpty else {
+        guard !model.busy, !model.unresolved, permitted, !model.amount.isEmpty, let from = model.from, (try? SocketFiWalletClient.spendAmount(model.amount, token: from)) != nil else {
             return false
         }
         if isSwap {
@@ -71,11 +79,20 @@ struct SocketFiWalletActionView: View {
                     }.disabled(model.busy)
                 }
                 ToolbarItem(placement: .topBarTrailing) { Text(model.networkLabel).font(.caption.weight(.semibold)) }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { amountFocused = false; recipientFocused = false }
+                }
             }
             .safeAreaInset(edge: .bottom) { footer }
         }
         .tint(AccessStyle.brand)
         .interactiveDismissDisabled(model.busy)
+        .sheet(isPresented: $connection.showingPicker, onDismiss: {
+            if model.busy && !connection.hasSelectedSession { model.cancelApproval() }
+        }) {
+            SocketFiWalletPicker(connection: connection, cancel: model.cancelApproval)
+        }
         .onChange(of: model.amount) { _, _ in
             model.invalidateQuote()
             model.actionError = nil
@@ -99,23 +116,17 @@ struct SocketFiWalletActionView: View {
     }
 
     private var actionHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        HStack(spacing: 12) {
             Image(isSwap ? "SocketFiSwap" : "SocketFiSend")
-                .renderingMode(.original)
-                .resizable()
-                .scaledToFit()
-                .padding(10)
-                .frame(width: 52, height: 52)
-                .background(AccessStyle.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-            Text(isSwap ? "Exchange assets" : "Send to another account")
-                .font(.title2.weight(.semibold))
-            Text(
-                isSwap
-                ? "Get a fresh quote, then approve the transaction with your passkey."
-                : "Choose an asset and enter a Stellar recipient address."
-            )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .resizable().scaledToFit().padding(8)
+                .frame(width: 44, height: 44)
+                .background(AccessStyle.brand.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isSwap ? "Exchange assets" : "Send to another account")
+                    .font(.headline)
+                Text(isSwap ? "Review a fresh quote before approving." : "Use a Stellar G… or C… recipient address.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -147,11 +158,13 @@ struct SocketFiWalletActionView: View {
                 }.labelsHidden()
                 .disabled(model.busy)
             }
+            if let amountError { Text(amountError).font(.caption).foregroundStyle(.red) }
             TextField("0.00", text: $model.amount)
                 .font(.system(.largeTitle, design: .rounded).weight(.medium))
                 .keyboardType(.decimalPad)
                 .focused($amountFocused)
                 .accessibilityLabel("Amount to \(isSwap ? "swap" : "withdraw")")
+                .accessibilityIdentifier("withdraw.amount")
                 .disabled(model.busy)
             HStack {
                 Text("Available: \(model.from?.balanceText ?? "—") \(model.from?.symbol ?? "")")
@@ -173,16 +186,26 @@ struct SocketFiWalletActionView: View {
     private var withdrawalFields: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Recipient").font(.subheadline.weight(.semibold))
-            TextField("Stellar G… or C… address", text: $model.recipient, axis: .vertical)
-                .font(.footnote.monospaced())
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .lineLimit(2...4)
-                .padding(16)
-                .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-                .disabled(model.busy)
+            HStack(alignment: .top, spacing: 8) {
+                TextField("Stellar G… or C… address", text: $model.recipient, axis: .vertical)
+                    .font(.footnote.monospaced())
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .lineLimit(2...4)
+                    .focused($recipientFocused)
+                    .accessibilityIdentifier("withdraw.recipient")
+                PasteButton(payloadType: String.self) { values in
+                    if let value = values.first { model.recipient = value.trimmingCharacters(in: .whitespacesAndNewlines) }
+                }
+                .labelStyle(.iconOnly)
+                .accessibilityLabel("Paste recipient address")
+                .accessibilityIdentifier("withdraw.paste")
+            }
+            .padding(16)
+            .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
+            .disabled(model.busy)
             if !model.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasRecipient {
-                Text("Enter a valid Stellar G… or C… address.")
+                Text(model.recipient.trimmingCharacters(in: .whitespacesAndNewlines) == model.session.account.address ? "Choose a different destination from this wallet." : "Enter a valid Stellar G… or C… address.")
                     .font(.caption)
                     .foregroundStyle(.red)
             } else {
@@ -301,11 +324,19 @@ struct SocketFiWalletActionView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if !permitted {
+                    Text(isSwap ? "Swaps are unavailable for this app." : "Withdrawals are unavailable for this app.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if model.busy && !model.unresolved && model.review != nil && model.session.account.signer == .evmWallet {
+                    Button("Cancel wallet approval") { model.cancelApproval() }
+                }
                 Button {
                     amountFocused = false
+                    recipientFocused = false
                     Task {
                         if model.review != nil {
-                            await model.approve()
+                            model.startApproval()
                         } else {
                             await model.prepare()
                         }
@@ -319,7 +350,7 @@ struct SocketFiWalletActionView: View {
                         Text(
                             model.review == nil
                             ? (isSwap ? "Get quote" : "Review withdrawal")
-                            : "Approve with passkey"
+                            : model.approvalTitle
                         )
                             .fontWeight(.semibold)
                     }

@@ -59,6 +59,9 @@ public struct SocketFiAPIClient: Sendable {
         guard let httpResponse = urlResponse as? HTTPURLResponse else {
             throw SocketFiNativeError.invalidResponse
         }
+        if request.url?.path == "/api/evm" {
+            NSLog("[SocketFiEVM] api_http_status=%ld", httpResponse.statusCode)
+        }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let error = try? decoder.decode(SocketFiAPIError.self, from: data)
             throw SocketFiNativeError.requestFailed(
@@ -70,6 +73,14 @@ public struct SocketFiAPIClient: Sendable {
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
+            if request.url?.path == "/api/evm" {
+                // Log schema mismatches, never response bodies or credentials.
+                if case let DecodingError.keyNotFound(key, _) = error {
+                    NSLog("[SocketFiEVM] missing_response_field=%@", key.stringValue)
+                } else {
+                    NSLog("[SocketFiEVM] stage=response_decoding_failed")
+                }
+            }
             throw SocketFiNativeError.invalidResponse
         }
     }

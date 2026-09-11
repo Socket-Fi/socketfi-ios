@@ -5,6 +5,7 @@ import SocketFiNativeKit
 import WalletConnectNetworking
 import WalletConnectRelay
 import Starscream
+import OSLog
 
 #if canImport(UIKit)
 import UIKit
@@ -12,11 +13,32 @@ import UIKit
 
 /// Owns the one-time Reown/AppKit setup used by the native EVM sign-in flow.
 @MainActor
-final class SocketFiWalletConnect {
+final class SocketFiWalletConnect: ObservableObject {
     static let shared = SocketFiWalletConnect()
     private var configured = false
-    private var pickerPresented = false
     private var subscriptions = Set<AnyCancellable>()
+    private var boundAddress: String?
+    private var boundTopic: String?
+    private var rejected = false
+    private var projectID = ""
+    private var attempt = UUID()
+    private var pairingTopic: String?
+    private var connectionError: Error?
+    private var connectionTask: Task<Void, Never>?
+    private var selectedWallet: SocketFiWalletChoice?
+    private var pendingPairingURL: URL?
+    private var accountChanged = false
+    private var invalidatedTopics = Set<String>()
+    @Published var showingPicker = false
+    @Published private(set) var choosing = false
+    @Published private(set) var pairingReady = false
+    @Published private(set) var wallets: [SocketFiWalletChoice] = []
+    @Published private(set) var catalogueError: String?
+    @Published private(set) var loadingWallets = false
+    private var cataloguePage = 0
+    private var catalogueCount = 0
+    var hasMoreWallets: Bool { wallets.count < catalogueCount }
+
 
     private init() {}
 
@@ -24,6 +46,7 @@ final class SocketFiWalletConnect {
         guard !configured else { return }
         guard !projectID.isEmpty else { return }
 
+        self.projectID = projectID
         Networking.configure(
             groupIdentifier: "group.fi.socket.socketfi",
             projectId: projectID,
@@ -42,71 +65,297 @@ final class SocketFiWalletConnect {
             projectId: projectID,
             metadata: metadata,
             crypto: SocketFiReownCryptoProvider(),
+            sessionParams: SessionParams(namespaces: [
+                "eip155": ProposalNamespace(
+                    chains: [Blockchain("eip155:1")!],
+                    methods: ["personal_sign"],
+                    events: ["accountsChanged", "chainChanged"]
+                )
+            ]),
             authRequestParams: nil,
             includeWebWallets: true,
-            coinbaseEnabled: true
+            coinbaseEnabled: false
         )
+        AppKit.instance.sessionRejectionPublisher.receive(on: DispatchQueue.main).sink { [weak self] proposal, _ in
+            guard let self, proposal.pairingTopic == self.pairingTopic else { return }
+            self.rejected = true
+        }.store(in: &subscriptions)
+        AppKit.instance.sessionEventPublisher.receive(on: DispatchQueue.main).sink { [weak self] payload in
+            guard let self, payload.sessionTopic == self.boundTopic,
+                  payload.event.name == "accountsChanged" else { return }
+            self.accountChanged = true
+            self.invalidatedTopics.insert(payload.sessionTopic)
+        }.store(in: &subscriptions)
         configured = true
     }
 
     func presentWalletPicker() {
-        guard configured else { return }
-        pickerPresented = true
-        AppKit.present()
+        attempt = UUID()
+        rejected = false
+        connectionError = nil
+        accountChanged = false
+        boundAddress = nil
+        boundTopic = nil
+        selectedWallet = nil
+        pairingTopic = nil
+        pendingPairingURL = nil
+        pairingReady = false
+        choosing = false
+        NSLog("[SocketFiEVM] stage=wallet_picker")
+        // Every attempt requires a wallet choice and a newly approved account.
+        // Restored sessions must never bypass the picker or supply an old address.
+        showingPicker = true
+    }
+
+    func finishAttempt() {
+        attempt = UUID()
+        connectionTask?.cancel()
+        connectionTask = nil
+        pairingTopic = nil
+        pendingPairingURL = nil
+        pairingReady = false
+        showingPicker = false
+        choosing = false
+    }
+
+    var hasSelectedSession: Bool { currentSession != nil }
+
+    var connectedWalletName: String? { configured ? currentSession?.peer.name : nil }
+
+    func loadWallets() async {
+        guard configured, !loadingWallets else { return }
+        loadingWallets = true
+        catalogueError = nil
+        defer { loadingWallets = false }
+        do {
+            var url = URLComponents(string: "https://explorer-api.walletconnect.com/v3/wallets")!
+            url.queryItems = [URLQueryItem(name: "page", value: String(cataloguePage + 1)),
+                              URLQueryItem(name: "entries", value: "1000"),
+                              URLQueryItem(name: "projectId", value: projectID),
+                              URLQueryItem(name: "sdks", value: "sign_v2"),
+                              URLQueryItem(name: "platforms", value: "ios"),
+                              URLQueryItem(name: "chains", value: "eip155:1")]
+            var request = URLRequest(url: url.url!, timeoutInterval: 20)
+            request.setValue(projectID, forHTTPHeaderField: "x-project-id")
+            request.setValue("appkit", forHTTPHeaderField: "x-sdk-type")
+            request.setValue("SocketFi", forHTTPHeaderField: "Referer")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+            let page = try JSONDecoder().decode(SocketFiWalletCatalogue.self, from: data)
+            let existing = Set(wallets.map(\.id))
+            wallets += page.data.filter { !existing.contains($0.id) }
+            let querySchemes = Set(Bundle.main.object(forInfoDictionaryKey: "LSApplicationQueriesSchemes") as? [String] ?? [])
+            func installed(_ wallet: SocketFiWalletChoice) -> Bool {
+                guard let link = wallet.mobile_link, let url = URL(string: link),
+                      let scheme = url.scheme, querySchemes.contains(scheme) else { return false }
+                return UIApplication.shared.canOpenURL(url)
+            }
+            wallets.sort {
+                let lhs = installed($0), rhs = installed($1)
+                return lhs == rhs ? $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending : lhs
+            }
+            catalogueCount = page.total
+            cataloguePage += 1
+        } catch { catalogueError = "Couldn’t load wallets. Check your connection and retry." }
+    }
+
+    func choose(_ wallet: SocketFiWalletChoice) {
+        guard !choosing else { return }
+        choosing = true // Lock before starting any async work: one tap, one proposal.
+        selectedWallet = wallet
+        boundTopic = nil
+        let operation = attempt
+        connectionTask = Task {
+            do {
+                guard let uri = try await AppKit.instance.connect(walletUniversalLink: nil) else {
+                    throw SocketFiNativeError.configuration("Couldn’t prepare the wallet connection. Try again.")
+                }
+                try Task.checkCancellation()
+                guard operation == attempt else { return }
+                pairingTopic = uri.topic
+                guard let link = wallet.mobile_link,
+                      let url = Self.pairingURL(link: link, uri: uri.absoluteString) else {
+                    throw SocketFiNativeError.configuration("This wallet has no supported iPhone connection link. Choose another wallet.")
+                }
+                var destination = url
+                let schemes = Set(Bundle.main.object(forInfoDictionaryKey: "LSApplicationQueriesSchemes") as? [String] ?? [])
+                if let scheme = url.scheme, schemes.contains(scheme),
+                   !UIApplication.shared.canOpenURL(URL(string: link)!),
+                   let universal = wallet.mobile.universal, !universal.isEmpty,
+                   let fallback = Self.pairingURL(link: universal, uri: uri.absoluteString) {
+                    destination = fallback
+                }
+                pendingPairingURL = destination
+                pairingReady = true
+                // A declined iOS Open prompt must not trigger another launch.
+                try await openWalletURL(destination)
+                NSLog("[SocketFiEVM] stage=pairing_wallet_opened")
+            } catch {
+                guard operation == attempt else { return }
+                connectionError = error
+            }
+        }
+    }
+
+    static func pairingURL(link: String, uri: String) -> URL? {
+        guard let base = URL(string: link), let scheme = base.scheme, !scheme.isEmpty else { return nil }
+        let prefix = link.hasSuffix("/") ? String(link.dropLast()) : link
+        let normalized = (scheme == "https" || scheme == "http") ? prefix : (link.contains("://") ? link : link + "//")
+        let alreadyWC = base.host == "wc" || base.path.split(separator: "/").last == "wc"
+        let target = alreadyWC ? prefix : (normalized.hasSuffix("://") ? normalized + "wc" : normalized.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/wc")
+        guard var parts = URLComponents(string: target) else { return nil }
+        parts.queryItems = [URLQueryItem(name: "uri", value: uri)]
+        return parts.url
+    }
+
+    private func openWalletURL(_ url: URL) async throws {
+        let deadline = Date().addingTimeInterval(10)
+        while UIApplication.shared.applicationState != .active {
+            try Task.checkCancellation()
+            guard Date() < deadline else { throw SocketFiNativeError.configuration("Return to SocketFi and tap Open wallet to continue.") }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try Task.checkCancellation()
+        let options: [UIApplication.OpenExternalURLOptionsKey: Any] = url.scheme == "https" ? [.universalLinksOnly: true] : [:]
+        let opened = await UIApplication.shared.open(url, options: options)
+        guard opened else { throw SocketFiNativeError.configuration("Couldn’t open the wallet. Make sure it is installed, or choose another wallet.") }
+    }
+
+    func reopenWallet() async throws {
+        if let pendingPairingURL, currentSession == nil { try await openWalletURL(pendingPairingURL); return }
+        guard let session = currentSession else { throw SocketFiNativeError.sessionUnavailable }
+        let links = [session.peer.redirect?.native, selectedWallet?.mobile_link, session.peer.redirect?.universal].compactMap { $0 }.compactMap(URL.init(string:))
+        let schemes = Set(Bundle.main.object(forInfoDictionaryKey: "LSApplicationQueriesSchemes") as? [String] ?? [])
+        for link in links {
+            if let scheme = link.scheme, schemes.contains(scheme), !UIApplication.shared.canOpenURL(link) { continue }
+            try await openWalletURL(link)
+            return
+        }
+        throw SocketFiNativeError.configuration("Couldn’t open the connected wallet. Open it manually to approve, or cancel and choose another wallet.")
+    }
+
+    private var currentSession: Session? {
+        guard configured else { return nil }
+        let sessions = AppKit.instance.getSessions().filter { $0.expiryDate > Date() && !invalidatedTopics.contains($0.topic) }
+        if let pairingTopic { return sessions.first { $0.pairingTopic == pairingTopic } }
+        if let boundTopic { return sessions.first { $0.topic == boundTopic } }
+        return nil
+    }
+
+    private func selectedAccount() throws -> Account {
+        guard !accountChanged else {
+            throw SocketFiNativeError.configuration("The wallet changed accounts. Cancel the old request and reconnect with the intended account.")
+        }
+        guard let session = currentSession else {
+            throw SocketFiNativeError.configuration("The wallet disconnected. Reconnect and try again.")
+        }
+        return try Self.resolveAccount(session: session, displayedAddress: nil, boundAddress: boundAddress)
+    }
+
+    static func resolveAccount(session: Session, displayedAddress: String?, boundAddress: String?) throws -> Account {
+        // Trust can approve both Solana and EVM when using AppKit defaults.
+        // AppKit.getAddress() picks session.accounts.first (unordered), which
+        // may be Solana. Resolve only explicitly approved EVM signing accounts.
+        let accounts = session.namespaces.values
+            .filter { $0.methods.contains("personal_sign") }
+            .flatMap { $0.accounts }
+            .filter { $0.blockchain.namespace == "eip155" }
+            .sorted { $0.absoluteString < $1.absoluteString }
+        let addresses = Set(accounts.map { $0.address.lowercased() })
+        let displayed = displayedAddress?.lowercased()
+        let selectedEvm = displayed.flatMap { addresses.contains($0) ? $0 : nil }
+        guard let address = boundAddress ?? selectedEvm ?? (addresses.count == 1 ? addresses.first : nil),
+              addresses.contains(address),
+              selectedEvm == nil || selectedEvm == address,
+              let account = accounts.first(where: { $0.address.lowercased() == address }) else {
+            throw SocketFiNativeError.configuration("The wallet changed accounts or has no unambiguous EVM signing account. Disconnect, select the intended EVM account in your wallet, and reconnect.")
+        }
+        return account
     }
 
     func sign(message: String) async throws -> String {
         guard configured else { throw SocketFiNativeError.configuration("Wallet connection is not configured.") }
         if message == "__socketfi_address__" {
-            if let address = currentAddress { return address }
-            try await waitForSession()
-            guard let address = currentAddress else { throw SocketFiNativeError.invalidResponse }
-            return address
-        }
-        guard let address = currentAddress else { throw SocketFiNativeError.sessionUnavailable }
-        return try await withCheckedThrowingContinuation { continuation in
-            var cancellable: AnyCancellable?
-            cancellable = AppKit.instance.sessionResponsePublisher
-                .first()
-                .sink { [weak self] response in
-                    cancellable?.cancel()
-                    self?.subscriptions.removeAll()
-                    switch response.result {
-                    case let .response(value):
-                        do { continuation.resume(returning: try value.get(String.self)) }
-                        catch { continuation.resume(throwing: SocketFiNativeError.invalidResponse) }
-                    case .error:
-                        continuation.resume(throwing: SocketFiNativeError.authenticationCancelled)
-                    }
+            let deadline = Date().addingTimeInterval(120)
+            while currentSession == nil {
+                try Task.checkCancellation()
+                if let connectionError { throw connectionError }
+                if rejected { throw SocketFiNativeError.authenticationCancelled }
+                guard Date() < deadline else {
+                    throw SocketFiNativeError.configuration("Wallet connection timed out. Return to SocketFi and try again.")
                 }
-            if let cancellable { subscriptions.insert(cancellable) }
-            Task { try? await AppKit.instance.request(.personal_sign(address: address, message: message)) }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            showingPicker = false
+            let account = try selectedAccount()
+            boundAddress = account.address.lowercased()
+            boundTopic = currentSession?.topic
+            NSLog("[SocketFiEVM] stage=session_settled")
+            return account.address
         }
-    }
-
-    private var currentAddress: String? {
-        if let address = AppKit.instance.getAddress() { return address }
-        guard let value = AppKit.instance.getSessions().first?.accounts.first?.address else { return nil }
-        return value.split(separator: ":").last.map(String.init)
-    }
-
-    private func waitForSession() async throws {
-        if !pickerPresented { AppKit.present() }
-        defer { pickerPresented = false }
-        // Reown updates its account store as part of deep-link handling. Poll
-        // that authoritative store instead of relying on a publisher that may
-        // emit before the app's scene finishes receiving the callback.
-        for _ in 0..<180 {
+        let account = try selectedAccount()
+        guard let session = currentSession else { throw SocketFiNativeError.sessionUnavailable }
+        // Explicit params preserve the raw 32-byte hex challenge, and avoid
+        // AppKit's convenience API silently returning without a selected chain.
+        let request = try Request(topic: session.topic, method: "personal_sign",
+                                  params: AnyCodable([message, account.address]), chainId: account.blockchain)
+        var result: Result<String, Error>?
+        let subscription = AppKit.instance.sessionResponsePublisher.receive(on: DispatchQueue.main).sink { response in
+            guard response.id == request.id, response.topic == request.topic else { return }
+            Task { @MainActor in
+                switch response.result {
+                case let .response(value):
+                    result = Result { try value.get(String.self) }
+                case let .error(error):
+                    result = .failure(error.code == 4001 || error.code == 5000
+                        ? SocketFiNativeError.authenticationCancelled
+                        : SocketFiNativeError.configuration("The wallet could not sign the request. Reconnect and retry."))
+                }
+            }
+        }
+        let sendTask = Task { @MainActor in
+            do {
+                try await AppKit.instance.request(params: request)
+                try Task.checkCancellation()
+                if result == nil { try await reopenWallet() }
+                NSLog("[SocketFiEVM] stage=signature_requested")
+            } catch { result = .failure(error) }
+        }
+        defer { subscription.cancel(); sendTask.cancel() }
+        let deadline = Date().addingTimeInterval(120)
+        while result == nil {
             try Task.checkCancellation()
-            if currentAddress != nil { return }
-            try await Task.sleep(for: .milliseconds(250))
+            _ = try selectedAccount()
+            guard Date() < deadline else {
+                throw SocketFiNativeError.configuration("Signature approval timed out. Reject the old request in your wallet, then retry in SocketFi.")
+            }
+            try await Task.sleep(for: .milliseconds(200))
         }
-        throw SocketFiNativeError.configuration("Wallet connection timed out. Try again.")
+        try Task.checkCancellation()
+        _ = try selectedAccount()
+        NSLog("[SocketFiEVM] stage=signature_response")
+        return try result!.get()
+    }
+
+    func disconnect() async throws {
+        guard configured else { return }
+        for session in AppKit.instance.getSessions() {
+            try await Sign.instance.disconnect(topic: session.topic)
+        }
+        boundAddress = nil
+        boundTopic = nil
+        selectedWallet = nil
     }
 
     @discardableResult
     func handle(_ url: URL) -> Bool {
         guard configured else { return false }
+        guard url.scheme == "socketfi", url.host == "walletconnect" else { return false }
+        NSLog("[SocketFiEVM] stage=deep_link_return")
+        // A plain redirect only foregrounds the app; settlement comes via relay.
+        if url.query == nil { return true }
         return AppKit.instance.handleDeeplink(url)
     }
 }
@@ -133,7 +382,7 @@ private final class SocketFiWebSocket: NSObject, WebSocketConnecting, WebSocketD
         socket = WebSocket(request: request)
         super.init()
         socket.delegate = self
-        socket.callbackQueue = DispatchQueue(label: "fi.socket.socketfi.walletconnect", attributes: .concurrent)
+        socket.callbackQueue = DispatchQueue(label: "fi.socket.socketfi.walletconnect", attributes: [])
     }
 
     func connect() { socket.connect() }

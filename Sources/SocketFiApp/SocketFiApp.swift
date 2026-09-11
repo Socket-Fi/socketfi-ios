@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 import SocketFiNativeKit
 
 @main
@@ -7,6 +8,9 @@ struct SocketFiApp: App {
 
     init() {
         let configuration = SocketFiConfiguration.fromInfoPlist()
+        if let projectID = Bundle.main.object(forInfoDictionaryKey: "SocketFiWalletConnectProjectID") as? String {
+            SocketFiWalletConnect.shared.configure(projectID: projectID)
+        }
         _model = StateObject(wrappedValue: SocketFiAppModel(
             client: SocketFiNativeAccountClient(configuration: configuration), configuration: configuration
         ))
@@ -28,7 +32,55 @@ final class SocketFiAppModel: ObservableObject {
 
     @Published var state: State = .loading
     @Published var errorMessage: String?
-    private var isAuthenticating = false
+    @Published private(set) var isAuthenticating = false
+    @Published private(set) var evmStage: SocketFiEvmAuthStage?
+    @Published private(set) var isDisconnectingEvm = false
+    @Published var evmError: String?
+    @Published var evmNotice: String?
+    @Published private(set) var connectedWalletName: String?
+    private var evmTask: Task<Void, Never>?
+
+    func startEvm() {
+        guard !isAuthenticating, !isDisconnectingEvm, evmTask == nil else { return }
+        errorMessage = nil
+        evmError = nil
+        evmNotice = nil
+        evmStage = .connecting
+        SocketFiWalletConnect.shared.presentWalletPicker()
+        evmTask = Task {
+            await authenticateEvm()
+            evmTask = nil
+        }
+    }
+
+    func cancelEvm() {
+        guard evmStage != .submitting else { return }
+        evmTask?.cancel()
+    }
+
+    func refreshEvmConnection() {
+        connectedWalletName = SocketFiWalletConnect.shared.connectedWalletName
+    }
+
+    func reopenEvmWallet() {
+        Task {
+            do { try await SocketFiWalletConnect.shared.reopenWallet() }
+            catch { evmError = error.localizedDescription }
+        }
+    }
+
+    func disconnectEvm() {
+        guard !isAuthenticating, evmTask == nil, !isDisconnectingEvm else { return }
+        isDisconnectingEvm = true
+        Task {
+            defer { isDisconnectingEvm = false; refreshEvmConnection() }
+            do {
+                try await SocketFiWalletConnect.shared.disconnect()
+                evmError = nil
+                evmNotice = "Wallet disconnected. Choose another wallet to continue."
+            } catch { evmError = "Could not disconnect. Check your connection and try again." }
+        }
+    }
     let client: SocketFiNativeAccountClient
     let configuration: SocketFiConfiguration
 
@@ -38,6 +90,13 @@ final class SocketFiAppModel: ObservableObject {
     }
 
     func restore() async {
+        #if DEBUG
+        // Visual UI checks can inspect onboarding without deleting a real session.
+        if ProcessInfo.processInfo.arguments.contains("-preview-onboarding") {
+            state = .signedOut
+            return
+        }
+        #endif
         do {
             if let session = try await client.restoreSession() { state = .signedIn(session) }
             else { state = .signedOut }
@@ -67,14 +126,33 @@ final class SocketFiAppModel: ObservableObject {
         isAuthenticating = true
         defer { isAuthenticating = false }
         errorMessage = nil
+        defer { SocketFiWalletConnect.shared.finishAttempt(); evmStage = nil; refreshEvmConnection() }
         do {
-            let session = try await client.authenticateEvm { message in
+            let session = try await client.authenticateEvm(onStage: { stage in
+                self.evmStage = stage
+                self.refreshEvmConnection()
+            }) { message in
                 try await SocketFiWalletConnect.shared.sign(message: message)
             }
             state = .signedIn(session)
-        } catch SocketFiNativeError.authenticationCancelled { }
-        catch is CancellationError { }
-        catch { errorMessage = error.localizedDescription }
+        } catch SocketFiNativeError.authenticationCancelled {
+            evmNotice = "Request declined. You can try again when you’re ready."
+        }
+        catch is CancellationError {
+            evmNotice = "Sign-in cancelled. You can start again whenever you’re ready."
+        }
+        catch let error as URLError where error.code == .cancelled {
+            evmNotice = "Sign-in cancelled. You can start again whenever you’re ready."
+        }
+        catch {
+            NSLog("[SocketFiEVM] stage=authentication_failed")
+            if let networkError = error as? URLError {
+                NSLog("[SocketFiEVM] network_error_code=%ld", networkError.code.rawValue)
+                evmError = networkError.code == .timedOut
+                    ? "SocketFi timed out. Check your connection and start EVM sign-in again."
+                    : "Could not reach SocketFi. Check your internet connection, then try EVM sign-in again."
+            } else { evmError = error.localizedDescription }
+        }
     }
 
     func signOut() async {
@@ -119,189 +197,6 @@ struct SocketFiLoadingView: View {
     }
 }
 
-/// Native onboarding using the SocketFi web application's visual language.
-struct SocketFiSignInView: View {
-    @ObservedObject var model: SocketFiAppModel
-    @State private var showingPasskey = false
-    @ScaledMetric(relativeTo: .largeTitle) private var headlineSize = 42
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 10) {
-                        SocketFiBrandMark()
-                            .fill(AccessStyle.brand, style: FillStyle(eoFill: true))
-                            .frame(width: 30, height: 30)
-                            .accessibilityHidden(true)
-                        Text("socketfi")
-                            .font(.title3.weight(.semibold))
-                            .tracking(-0.5)
-                    }
-
-                    Spacer(minLength: 48)
-
-                    Text("Your account.\nYour control.")
-                        .font(.system(size: headlineSize, weight: .semibold))
-                        .tracking(-1.2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityAddTraits(.isHeader)
-
-                    Text("A simpler way to manage your digital money. Choose how you want to continue.")
-                        .font(.body)
-                        .foregroundStyle(AccessStyle.secondary)
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 16)
-
-                    Spacer(minLength: 56)
-
-                    VStack(spacing: 10) {
-                        Button {
-                            model.errorMessage = nil
-                            showingPasskey = true
-                        } label: {
-                            onboardingMethodLabel(
-                                title: "Continue with passkey",
-                                subtitle: "Recommended · Fast and passwordless",
-                                systemImage: "touchid",
-                                prominent: true
-                            )
-                        }
-                        .buttonStyle(AccessButtonStyle())
-                        .accessibilityHint("Open passkey sign-in and account creation options")
-
-                        onboardingMethodButton(
-                            title: "Continue with Stellar wallet",
-                            subtitle: "Freighter, xBull, LOBSTR, and more",
-                            assetName: "SocketFiStellar"
-                        )
-
-                        onboardingMethodButton(
-                            title: "Continue with EVM wallet",
-                            subtitle: "MetaMask, Coinbase Wallet, and more",
-                            assetName: "SocketFiEthereum",
-                            action: connectEvmWallet
-                        )
-                    }
-
-                    if let message = model.errorMessage {
-                        Label(message, systemImage: "exclamationmark.circle")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .padding(.top, 14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Text("Passkey access is available now. Connect an EVM wallet to continue with MetaMask, Coinbase Wallet, or WalletConnect.")
-                        .font(.footnote)
-                        .foregroundStyle(AccessStyle.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 18)
-                }
-                .foregroundStyle(AccessStyle.text)
-                .frame(maxWidth: 480)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 28)
-                .frame(minHeight: geometry.size.height)
-                .frame(maxWidth: .infinity)
-            }
-            .background {
-                ZStack(alignment: .topTrailing) {
-                    AccessStyle.background
-                    AccessStyle.headerGradient
-                        .frame(height: 280)
-                        .accessibilityHidden(true)
-                }
-                .clipped()
-                .ignoresSafeArea()
-            }
-        }
-        .sheet(isPresented: $showingPasskey) {
-            SocketFiPasskeySheet(model: model)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
-        }
-    }
-
-    private func onboardingMethodButton(title: String, subtitle: String, systemImage: String? = nil, assetName: String? = nil, action: @escaping () -> Void = {}) -> some View {
-        Button {
-            action()
-        } label: {
-            onboardingMethodLabel(title: title, subtitle: subtitle, systemImage: systemImage, assetName: assetName, prominent: false)
-        }
-        .buttonStyle(AccessButtonStyle())
-        .accessibilityHint("Open the EVM wallet picker")
-    }
-
-    private func connectEvmWallet() {
-        model.errorMessage = nil
-        guard let projectID = Bundle.main.object(forInfoDictionaryKey: "SocketFiWalletConnectProjectID") as? String,
-              !projectID.isEmpty else {
-            model.errorMessage = "Wallet connection is not configured for this build."
-            return
-        }
-        SocketFiWalletConnect.shared.configure(projectID: projectID)
-        // Present synchronously from the button gesture. WalletConnect/iOS
-        // can reject presentation initiated only from a detached async task.
-        SocketFiWalletConnect.shared.presentWalletPicker()
-        Task { await model.authenticateEvm() }
-    }
-
-    private func onboardingMethodLabel(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String? = nil,
-        assetName: String? = nil,
-        prominent: Bool
-    ) -> some View {
-        HStack(spacing: 14) {
-            Group {
-                if let assetName {
-                    Image(assetName)
-                        .renderingMode(.original)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 34, height: 34)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(prominent ? Color.white : AccessStyle.brand)
-                }
-            }
-            .frame(width: 34, height: 34)
-            .clipShape(Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(prominent ? Color.white.opacity(0.8) : AccessStyle.secondary)
-                }
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
-                .opacity(0.7)
-        }
-        .frame(maxWidth: .infinity, minHeight: prominent ? 72 : 60, alignment: .leading)
-        .padding(.horizontal, 18)
-        .foregroundStyle(prominent ? Color.white : AccessStyle.text)
-        .background(
-            prominent ? AnyShapeStyle(AccessStyle.primary) : AnyShapeStyle(AccessStyle.surface),
-            in: RoundedRectangle(cornerRadius: 16)
-        )
-        .overlay {
-            if !prominent {
-                RoundedRectangle(cornerRadius: 16).stroke(AccessStyle.border)
-            }
-        }
-    }
-}
-
 struct SocketFiPasskeySheet: View {
     @ObservedObject var model: SocketFiAppModel
     @Environment(\.dismiss) private var dismiss
@@ -325,15 +220,10 @@ struct SocketFiPasskeySheet: View {
                     .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Passkey access")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AccessStyle.brand)
-                            .textCase(.uppercase)
-                            .tracking(0.8)
-                        Text("Continue with passkey")
+                        Text("Use a passkey")
                             .font(.title2.weight(.semibold))
                             .tracking(-0.3)
-                        Text("Use Face ID, Touch ID, or your device passcode.")
+                        Text("Secure access, made simple.")
                             .font(.subheadline)
                             .foregroundStyle(AccessStyle.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -383,10 +273,10 @@ struct SocketFiPasskeySheet: View {
                                 .foregroundStyle(AccessStyle.brand)
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Sign up with passkey")
+                                Text("Create account")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(AccessStyle.text)
-                                Text("Create a new smart account")
+                                Text("Set up your personal smart account")
                                     .font(.caption)
                                     .foregroundStyle(AccessStyle.secondary)
                             }
