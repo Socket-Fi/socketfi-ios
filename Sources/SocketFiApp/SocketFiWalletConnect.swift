@@ -86,19 +86,16 @@ final class SocketFiWalletConnect {
 
     private func waitForSession() async throws {
         if !pickerPresented { AppKit.present() }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                for await _ in AppKit.instance.sessionSettlePublisher.values { return }
-                throw SocketFiNativeError.sessionUnavailable
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(45))
-                throw SocketFiNativeError.configuration("Wallet connection timed out. Try again.")
-            }
-            _ = try await group.next()
-            group.cancelAll()
+        defer { pickerPresented = false }
+        // Reown updates its account store as part of deep-link handling. Poll
+        // that authoritative store instead of relying on a publisher that may
+        // emit before the app's scene finishes receiving the callback.
+        for _ in 0..<180 {
+            try Task.checkCancellation()
+            if AppKit.instance.getAddress() != nil { return }
+            try await Task.sleep(for: .milliseconds(250))
         }
-        pickerPresented = false
+        throw SocketFiNativeError.configuration("Wallet connection timed out. Try again.")
     }
 
     @discardableResult
