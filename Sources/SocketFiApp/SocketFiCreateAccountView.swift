@@ -14,21 +14,12 @@ struct SocketFiCreateAccountView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
-                        ZStack {
-                            Circle().fill(AccessStyle.primary.opacity(0.1))
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(AccessStyle.brand)
-                        }
-                        .frame(width: 52, height: 52)
-                        .padding(.bottom, 10)
-                        .accessibilityHidden(true)
-                        Text("Create your account")
+                        Text("Choose your username")
                             .font(.largeTitle.weight(.semibold))
                             .tracking(-0.8)
-                        Text("Choose a username, then secure it with your passkey.")
+                        Text("Your new SocketFi account will be secured with a passkey.")
                             .font(.body)
                             .foregroundStyle(AccessStyle.secondary)
                     }
@@ -92,7 +83,9 @@ struct SocketFiCreateAccountView: View {
                     }
                 }
                 .frame(maxWidth: 480)
-                .padding(24)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
