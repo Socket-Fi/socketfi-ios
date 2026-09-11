@@ -82,10 +82,14 @@ targets:
           SOCKETFI_WALLETCONNECT_PROJECT_ID: b3caac6f2b5c23a9134c1a14d58509d9
     dependencies:
       - target: SocketFiNativeKit
-      - package: ReownAppKit
-      - package: Web3
-      - package: HDWalletKit
-      - package: CryptoSwift
+      - package: reown
+        product: ReownAppKit
+      - package: web3
+        product: Web3
+      - package: hdwallet
+        product: HDWalletKit
+      - package: cryptoswift
+        product: CryptoSwift
     scheme:
       environmentVariables:
         - variable: OS_ACTIVITY_MODE
