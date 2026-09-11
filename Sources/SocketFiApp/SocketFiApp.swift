@@ -62,6 +62,21 @@ final class SocketFiAppModel: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
+    func authenticateEvm() async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+        errorMessage = nil
+        do {
+            let session = try await client.authenticateEvm { message in
+                try await SocketFiWalletConnect.shared.sign(message: message)
+            }
+            state = .signedIn(session)
+        } catch SocketFiNativeError.authenticationCancelled { }
+        catch is CancellationError { }
+        catch { errorMessage = error.localizedDescription }
+    }
+
     func signOut() async {
         await client.signOut()
         state = .signedOut
@@ -221,7 +236,7 @@ struct SocketFiSignInView: View {
             return
         }
         SocketFiWalletConnect.shared.configure(projectID: projectID)
-        SocketFiWalletConnect.shared.presentWalletPicker()
+        Task { await model.authenticateEvm() }
     }
 
     private func onboardingMethodLabel(
