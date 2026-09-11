@@ -58,6 +58,10 @@ targets:
         SocketFiNetwork: $(SOCKETFI_NETWORK)
         SocketFiRPID: socket.fi
         SocketFiWalletConnectProjectID: $(SOCKETFI_WALLETCONNECT_PROJECT_ID)
+        CFBundleURLTypes:
+          - CFBundleURLName: fi.socket.socketfi.walletconnect
+            CFBundleURLSchemes:
+              - socketfi
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen: {}
