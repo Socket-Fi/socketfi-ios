@@ -31,7 +31,7 @@ struct SocketFiWalletPicker: View {
                 if connection.choosing {
                     Section {
                         Label(connection.pairingReady ? "Waiting for your wallet" : "Preparing connection", systemImage: "arrow.up.forward.app")
-                        Text(connection.pairingReady ? "Approve the connection in your wallet, then return to SocketFi. A separate signature will confirm your account." : "Your wallet will open as soon as the secure connection is ready.")
+                        Text(connection.pairingReady ? (connection.isFunding ? "Approve the selected account and network in your wallet, then return to review your deposit." : "Approve the connection in your wallet, then return to SocketFi. A separate signature will confirm your account.") : "Your wallet will open as soon as the secure connection is ready.")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Button("Open wallet") {
                             Task {
@@ -43,7 +43,7 @@ struct SocketFiWalletPicker: View {
                     if let openError { Text(openError).font(.footnote) }
                 } else {
                     Section {
-                        Text("Choose an installed WalletConnect wallet. Your wallet must support Ethereum message signing.")
+                        Text(connection.isFunding ? "Choose an installed WalletConnect wallet that supports transactions on your selected source network." : "Choose an installed WalletConnect wallet. Your wallet must support Ethereum message signing.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     ForEach(connection.wallets.filter {

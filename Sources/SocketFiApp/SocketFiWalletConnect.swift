@@ -29,6 +29,8 @@ final class SocketFiWalletConnect: ObservableObject {
     private var pendingPairingURL: URL?
     private var accountChanged = false
     private var invalidatedTopics = Set<String>()
+    private var fundingChain: Int?
+    var isFunding: Bool { fundingChain != nil }
     @Published var showingPicker = false
     @Published private(set) var choosing = false
     @Published private(set) var pairingReady = false
@@ -90,6 +92,7 @@ final class SocketFiWalletConnect: ObservableObject {
     }
 
     func presentWalletPicker() {
+        fundingChain = nil
         attempt = UUID()
         rejected = false
         connectionError = nil
@@ -112,6 +115,7 @@ final class SocketFiWalletConnect: ObservableObject {
     /// Transactions are bound to the wallet session used for this account's login.
     /// Never fall back to a different saved wallet or the authentication picker.
     func useAccountAuthority(_ accountSession: SocketFiSession) throws {
+        fundingChain = nil
         finishAttempt()
         boundTopic = nil
         boundAddress = nil
@@ -204,8 +208,16 @@ final class SocketFiWalletConnect: ObservableObject {
         let operation = attempt
         connectionTask = Task {
             do {
-                guard let uri = try await AppKit.instance.connect(walletUniversalLink: nil) else {
-                    throw SocketFiNativeError.configuration("Couldn’t prepare the wallet connection. Try again.")
+                let uri: WalletConnectURI
+                if let fundingChain {
+                    guard let chain = Blockchain("eip155:\(fundingChain)") else { throw SocketFiNativeError.invalidResponse }
+                    uri = try await Sign.instance.connect(namespaces: ["eip155": ProposalNamespace(
+                        chains: [chain], methods: ["eth_sendTransaction"], events: ["accountsChanged", "chainChanged"])])
+                } else {
+                    guard let connectionURI = try await AppKit.instance.connect(walletUniversalLink: nil) else {
+                        throw SocketFiNativeError.configuration("Couldn’t prepare the wallet connection. Try again.")
+                    }
+                    uri = connectionURI
                 }
                 try Task.checkCancellation()
                 guard operation == attempt else { return }
@@ -382,6 +394,84 @@ final class SocketFiWalletConnect: ObservableObject {
         boundAddress = nil
         boundTopic = nil
         selectedWallet = nil
+    }
+
+    /// Funding is a separate, newly approved session. It never updates the
+    /// SocketFi login's saved topic or owner used for outgoing authorization.
+    func connectFunding(chainID: Int) async throws -> (topic: String, address: String) {
+        guard configured, chainID > 0 else { throw SocketFiNativeError.sessionUnavailable }
+        presentWalletPicker()
+        fundingChain = chainID
+        let deadline = Date().addingTimeInterval(120)
+        do {
+            while currentSession == nil {
+                try Task.checkCancellation()
+                if let connectionError { throw connectionError }
+                if rejected { throw SocketFiNativeError.authenticationCancelled }
+                guard Date() < deadline else { throw SocketFiNativeError.configuration("The wallet connection timed out. Retry and approve the selected network in your wallet.") }
+                try await Task.sleep(for: .milliseconds(200))
+            }
+            guard let session = currentSession else { throw SocketFiNativeError.sessionUnavailable }
+            let account = try Self.fundingAccount(session: session, chainID: chainID, owner: nil)
+            boundTopic = session.topic
+            boundAddress = account.address.lowercased()
+            finishAttempt()
+            return (session.topic, account.address)
+        } catch { finishAttempt(); throw error }
+    }
+
+    static func fundingAccount(session: Session, chainID: Int, owner: String?) throws -> Account {
+        let accounts = session.namespaces.values.filter { $0.methods.contains("eth_sendTransaction") }
+            .flatMap { $0.accounts }.filter { $0.blockchain.absoluteString == "eip155:\(chainID)" }
+        let addresses = Set(accounts.map { $0.address.lowercased() })
+        guard session.expiryDate > Date(), addresses.count == 1, let account = accounts.first,
+              SocketFiCctpABI.isAddress(account.address), owner == nil || owner?.lowercased() == account.address.lowercased() else {
+            throw SocketFiNativeError.configuration("Select the intended EVM account and source network in your wallet, then connect again. This wallet must support transactions on that network.")
+        }
+        return account
+    }
+
+    func fundingTransaction(topic: String, owner: String, chainID: Int, to: String, data: String) async throws -> String {
+        fundingChain = chainID
+        boundTopic = topic
+        boundAddress = owner.lowercased()
+        pairingTopic = nil
+        guard let session = currentSession, !invalidatedTopics.contains(topic), SocketFiCctpABI.isAddress(to) else {
+            throw SocketFiNativeError.configuration("The funding wallet disconnected or changed accounts. Check its transaction activity before continuing.")
+        }
+        let account = try Self.fundingAccount(session: session, chainID: chainID, owner: owner)
+        let transaction = ["from": account.address, "to": to, "data": data, "value": "0x0", "chainId": "0x" + String(chainID, radix: 16)]
+        let request = try Request(topic: topic, method: "eth_sendTransaction", params: AnyCodable([transaction]), chainId: account.blockchain)
+        var result: Result<String, Error>?
+        let subscription = AppKit.instance.sessionResponsePublisher.receive(on: DispatchQueue.main).sink { response in
+            guard response.id == request.id, response.topic == topic else { return }
+            Task { @MainActor in
+                switch response.result {
+                case let .response(value): result = Result { try value.get(String.self) }
+                case let .error(error): result = .failure(error.code == 4001 || error.code == 5000
+                    ? SocketFiNativeError.authenticationCancelled
+                    : SocketFiNativeError.configuration("The wallet could not complete the transaction. Check its activity before retrying."))
+                }
+            }
+        }
+        let send = Task { @MainActor in
+            do {
+                try await AppKit.instance.request(params: request)
+                if result == nil { try await reopenWallet() }
+            } catch { if result == nil { result = .failure(error) } }
+        }
+        defer { subscription.cancel(); send.cancel() }
+        let deadline = Date().addingTimeInterval(180)
+        while result == nil {
+            try Task.checkCancellation()
+            guard Date() < deadline else { throw SocketFiNativeError.configuration("Wallet approval timed out. Check your wallet activity; SocketFi will track this deposit without sending it again.") }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        // Preserve a returned hash even if the wallet changed accounts after
+        // broadcasting. The backend verifies the burn's exact sender and calldata.
+        let hash = try result!.get()
+        guard SocketFiCctpABI.isHash(hash) else { throw SocketFiNativeError.invalidResponse }
+        return hash
     }
 
     @discardableResult

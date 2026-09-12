@@ -185,6 +185,13 @@ final class SocketFiWalletModel: ObservableObject {
         }
     }
 
+    func dismissActionResult() {
+        if receipt?.confirmed == true { receipt = nil }
+        actionResult = nil
+        review = nil
+        quote = nil
+    }
+
     func acknowledgeCheckedActivity() {
         markUnresolved(false)
         receipt = nil

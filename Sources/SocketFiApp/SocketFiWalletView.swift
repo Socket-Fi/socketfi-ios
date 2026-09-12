@@ -5,7 +5,6 @@ import UIKit
 struct SocketFiWalletView: View {
     @StateObject private var model: SocketFiWalletModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var confirmActivityChecked = false
     @State private var selectedToken: WalletDisplayToken?
     @State private var copiedAddress = false
     @State private var showQuickSettings = false
@@ -55,7 +54,6 @@ struct SocketFiWalletView: View {
                 walletBanner
                 portfolio
                 quickActions
-                if let receipt = model.receipt { receiptCard(receipt) }
                 if let error = model.error {
                     WalletNotice(title: "Couldn't refresh your wallet", message: error, systemImage: "wifi.exclamationmark")
                 }
@@ -118,12 +116,6 @@ struct SocketFiWalletView: View {
                 .navigationTitle(item.displaySymbol)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selectedToken = nil } } }
             }.presentationDetents([.medium, .large])
-        }
-        .alert("Have you checked the transaction?", isPresented: $confirmActivityChecked) {
-            Button("Keep checking", role: .cancel) { }
-            Button("I've verified the outcome") { model.acknowledgeCheckedActivity() }
-        } message: {
-            Text("Only continue after checking your account activity and balances. Repeating a payment that already succeeded sends the funds again.")
         }
         .confirmationDialog("Sign out of SocketFi?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) {
@@ -234,54 +226,45 @@ struct SocketFiWalletView: View {
                     .background(AccessStyle.brand.opacity(0.09), in: Capsule())
             }
             VStack(alignment: .leading, spacing: 10) {
+                HStack {
                 Text(model.hideBalances ? "••••••" : WalletFormat.fiat(model.snapshot?.estimatedTotal))
                     .font(.system(.largeTitle, design: .rounded).weight(.bold))
                     .monospacedDigit().contentTransition(.numericText())
                     .minimumScaleFactor(0.75).lineLimit(1)
+                    Spacer()
+                    Button { model.hideBalances.toggle() } label: {
+                        Image(systemName: model.hideBalances ? "eye.slash" : "eye")
+                            .font(.body.weight(.semibold)).frame(width: 44, height: 44)
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(model.hideBalances ? "Show balances" : "Hide balances")
+                }
                 Text(model.snapshot == nil ? (model.loading ? "Loading your balances…" : "Balances unavailable. Pull down to refresh.") : "Total estimated USD value")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 12) {
-                Button { model.hideBalances.toggle() } label: {
-                    Image(systemName: model.hideBalances ? "eye.slash" : "eye")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Wallet address").font(.caption).foregroundStyle(.secondary)
+                    Text(model.session.account.address)
+                        .font(.body.monospaced().weight(.medium))
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Contract account")
+                        .accessibilityValue(model.session.account.address)
+                        .accessibilityIdentifier("wallet.address")
+                }
+                Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
+                    Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(model.hideBalances ? "Show balances" : "Hide balances")
-
-                Divider().frame(height: 34)
-
-                HStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text(model.session.account.address)
-                            .accessibilityLabel("Contract account")
-                            .accessibilityValue(model.session.account.address)
-                            .accessibilityIdentifier("wallet.address")
-                            .font(.footnote.weight(.medium))
-                            .monospaced()
-                            .truncationMode(.middle)
-                            .lineLimit(1)
-                            .allowsTightening(true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Spacer()
-                        Button { copy(model.session.account.address, copied: $copiedAddress) } label: {
-                            Image(systemName: copiedAddress ? "checkmark" : "doc.on.doc")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(copiedAddress ? "Address copied" : "Copy account address")
-                        .accessibilityIdentifier("wallet.copyAddress")
-                    }
-                    .font(.footnote.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .frame(maxWidth: .infinity)
-                }
+                .accessibilityLabel(copiedAddress ? "Address copied" : "Copy account address")
+                .accessibilityIdentifier("wallet.copyAddress")
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+
         }
         .padding(22)
         .background(AccessStyle.headerGradient, in: RoundedRectangle(cornerRadius: 24))
@@ -378,27 +361,6 @@ struct SocketFiWalletView: View {
         .buttonStyle(AccessButtonStyle())
         .disabled(model.busy || (action == .withdraw && model.tokens.isEmpty) || (action == .swap && model.tokens.count < 2))
         .opacity((model.busy || (action == .withdraw && model.tokens.isEmpty) || (action == .swap && model.tokens.count < 2)) ? 0.45 : 1)
-    }
-
-    private func receiptCard(_ receipt: SocketFiWalletModel.Receipt) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(receipt.confirmed ? "Transaction confirmed" : receipt.title,
-                  systemImage: receipt.confirmed ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
-                .font(.subheadline.weight(.semibold))
-            if model.unresolved {
-                Text("Your transaction may have been submitted. Check its outcome before making another payment.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Link(destination: receipt.hash.map(model.transactionURL) ?? model.explorerURL) {
-                Label("View on explorer", systemImage: "arrow.up.right.square").font(.subheadline)
-            }
-            .accessibilityIdentifier("wallet.receipt")
-            .accessibilityValue(receipt.hash ?? "Confirmation pending")
-            if model.unresolved {
-                Button("I've checked my account activity") { confirmActivityChecked = true }.font(.footnote)
-            } else { Button("Dismiss") { model.receipt = nil }.font(.footnote) }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var displayTokens: [WalletDisplayToken] {
@@ -537,6 +499,50 @@ struct SocketFiWalletView: View {
                     LabeledContent("Network", value: model.networkLabel)
                     Toggle("Hide balances", isOn: $model.hideBalances)
                 }
+                Section("Security") {
+                    LabeledContent("Sign-in method", value: model.session.account.signer == .passkey ? "Passkey" : model.session.account.signer == .evmWallet ? "EVM wallet" : "Stellar wallet")
+                    NavigationLink {
+                        guardianSettings
+                    } label: {
+                        Label("Recovery & guardians", systemImage: "person.2.shield.checkmark")
+                    }.accessibilityIdentifier("settings.guardians")
+                }
+                Section("Assets") {
+                    NavigationLink {
+                        List { assetSettingsSections }
+                            .navigationTitle("Manage assets")
+                            .navigationBarTitleDisplayMode(.inline)
+                    } label: {
+                        Label("Manage assets", systemImage: "square.stack.3d.up")
+                    }.accessibilityIdentifier("settings.assets")
+                }
+
+                Section("Session") {
+                    Button(role: .destructive) {
+                        confirmSignOut = true
+                    } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+            }
+            .navigationTitle("Wallet settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .presentationDragIndicator(.visible)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { showQuickSettings = false }
+                }
+            }
+            .presentationDetents([.large])
+        }
+    }
+
+    private var guardianSettings: some View {
+        SocketFiGuardianView(wallet: model)
+    }
+
+    @ViewBuilder
+    private var assetSettingsSections: some View {
                 if !model.tokens.isEmpty {
                     Section("Watchlist") {
                         ForEach(model.tokens) { token in
@@ -702,24 +708,6 @@ struct SocketFiWalletView: View {
                     .foregroundStyle(AccessStyle.brand)
                 }
 
-                Section("Session") {
-                    Button(role: .destructive) {
-                        confirmSignOut = true
-                    } label: {
-                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-            }
-            .navigationTitle("Wallet settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .presentationDragIndicator(.visible)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { showQuickSettings = false }
-                }
-            }
-            .presentationDetents([.large])
-        }
     }
 
     private func loadWatchlist() {

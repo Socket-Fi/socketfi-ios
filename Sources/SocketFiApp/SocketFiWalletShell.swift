@@ -86,7 +86,7 @@ struct SocketFiWalletShell: View {
             }
         }
         .background(AccessStyle.background.ignoresSafeArea())
-        .sheet(item: $model.action) { action in
+        .sheet(item: $model.action, onDismiss: { model.dismissActionResult() }) { action in
             if action == .deposit || action == .address {
                 SocketFiReceiveView(model: model, addressOnly: action == .address)
             } else if action == .delegation {
@@ -307,340 +307,70 @@ private struct SocketFiTransfersView: View {
 private struct SocketFiAccountView: View {
     @ObservedObject var model: SocketFiWalletModel
     let signOut: () -> Void
-    @Environment(\.openURL) private var openURL
-
-    @State private var copiedAddress = false
-    @State private var copiedUsername = false
-    @State private var copiedProject = false
-    @State private var copiedApplication = false
-    @State private var copiedRelyingParty = false
+    @State private var copied = false
     @State private var confirmSignOut = false
-    @State private var showAdvanced = false
+
+    private var webHost: String {
+        model.session.account.network == .testnet ? "https://testnet.socketfi.app" : "https://socketfi.app"
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    SocketFiBrandMark().fill(AccessStyle.brand, style: FillStyle(eoFill: true)).frame(width: 38, height: 38)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SocketFi Wallet")
-                            .font(.title3.weight(.semibold))
-                        Text("Session on \(model.networkLabel)")
-                            .font(.caption)
-                            .foregroundStyle(AccessStyle.secondary)
-                    }
-                    Spacer()
+        List {
+            Section("Wallet") {
+                if let username = model.session.walletUsername {
+                    LabeledContent("Username", value: username)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AccessStyle.headerGradient, in: RoundedRectangle(cornerRadius: 18))
-
-                WalletSectionHeader(title: "Account", subtitle: "Your account at a glance.")
-                accountSummaryCard
-
-                WalletSectionHeader(title: "Quick actions", subtitle: "Move funds, share, and inspect activity.")
-                VStack(spacing: 12) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        QuickActionButton(
-                            title: "Copy address",
-                            subtitle: "Copy account ID",
-                            icon: "doc.on.doc",
-                            enabled: true
-                        ) { copy(model.session.account.address, copied: $copiedAddress) }
-
-                        ShareLink(item: model.session.account.address) {
-                            QuickActionButtonLabel(
-                                title: "Share",
-                                subtitle: "Send to another wallet",
-                                icon: "square.and.arrow.up"
-                            )
-                        }
-                        .buttonStyle(AccessButtonStyle())
+                LabeledContent("Network", value: model.networkLabel)
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Wallet address").font(.caption).foregroundStyle(.secondary)
+                        Text(model.session.account.address).font(.subheadline.monospaced())
+                            .lineLimit(1).truncationMode(.middle)
                     }
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        QuickActionButton(
-                            title: "Explorer",
-                            subtitle: "Open on chain history",
-                            icon: "arrow.up.right.square",
-                            enabled: true
-                        ) { openURL(model.explorerURL) }
-
-                        QuickActionButton(
-                            title: "SocketFi settings",
-                            subtitle: "Open web console",
-                            icon: "person.text.rectangle",
-                            enabled: true
-                        ) { openURL(settingsWebURL) }
-                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        UIPasteboard.general.string = model.session.account.address
+                        copied = true
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: 44, height: 44)
+                    }.buttonStyle(.plain).accessibilityLabel(copied ? "Address copied" : "Copy wallet address")
                 }
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showAdvanced.toggle()
-                    }
-                } label: {
-                    HStack {
-                        Text("Advanced details")
-                            .font(.headline)
-                        Spacer()
-                        Text(showAdvanced ? "Hide" : "Show")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Image(systemName: showAdvanced ? "chevron.up" : "chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 14)
-                    .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 14))
+                ShareLink(item: model.session.account.address) {
+                    Label("Share address", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-
-                if showAdvanced {
-                    VStack(spacing: 14) {
-                        if let capabilities = model.capabilities {
-                            let networkCaps = capabilities.allowedInvocations.filter { $0.network == model.session.account.network }
-                            let funcs = Set(networkCaps.flatMap(\.functions)).sorted()
-                            let caps = funcs.isEmpty ? "No capabilities indexed for current network" : funcs.joined(separator: ", ")
-                            accountCard(title: "Wallet capabilities", rows: [
-                                ("Enabled on networks", capabilities.networks.map(\.rawValue).joined(separator: ", ")),
-                                ("Allowed contract functions", caps)
-                            ], copyActions: [])
-                        } else {
-                            WalletNotice(
-                                title: "Capabilities",
-                                message: "Loading contract capabilities for wallet actions."
-                            )
-                        }
-
-                        accountCard(title: "Project configuration", rows: [
-                            ("Client ID", model.configuration.clientID),
-                            ("Application ID", model.configuration.applicationID),
-                            ("RP ID", model.configuration.relyingPartyID)
-                        ], copyActions: [
-                            ("Client ID", model.configuration.clientID, $copiedProject),
-                            ("Application ID", model.configuration.applicationID, $copiedApplication),
-                            ("RP ID", model.configuration.relyingPartyID, $copiedRelyingParty)
-                        ])
-
-                        VStack(spacing: 10) {
-                            webSettingsAction(title: "Recovery and guardians", destination: guardiansURL, subtitle: "Manage guardians and recovery.")
-                            webSettingsAction(title: "Session permissions", destination: sessionsURL, subtitle: "Review and revoke active permissions.")
-                        }
-                    }
-                }
-
-                if let copiedText = copiedNoticeText {
-                    WalletNotice(
-                        title: "Clipboard",
-                        message: copiedText,
-                        systemImage: "doc.on.doc"
-                    )
-                }
-
-                Button(role: .destructive) {
-                    confirmSignOut = true
-                } label: {
-                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .font(.body.weight(.semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-
             }
-            .padding(16)
+            Section {
+                LabeledContent("Sign-in method", value: model.session.account.signer == .passkey ? "Passkey" : model.session.account.signer == .evmWallet ? "EVM wallet" : "Stellar wallet")
+                NavigationLink {
+                    SocketFiGuardianView(wallet: model)
+                } label: {
+                    Label("Recovery & guardians", systemImage: "person.2.shield.checkmark")
+                }.accessibilityIdentifier("account.guardians")
+                Link(destination: URL(string: webHost + "/settings/sessions")!) {
+                    Label("Session permissions", systemImage: "lock.shield")
+                }
+            } header: { Text("Security") } footer: {
+                Text("Session permissions open SocketFi in your browser.")
+            }
+            Section("Preferences") {
+                Toggle("Hide balances", isOn: $model.hideBalances)
+                Link(destination: model.explorerURL) {
+                    Label("View on explorer", systemImage: "arrow.up.right.square")
+                }
+            }
+            Section {
+                Button(role: .destructive) { confirmSignOut = true } label: {
+                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                }.accessibilityIdentifier("account.signOut")
+            }
         }
-        .frame(maxWidth: 640)
-        .frame(maxWidth: .infinity)
-        .background(AccessStyle.background.ignoresSafeArea())
+        .listStyle(.insetGrouped)
         .confirmationDialog("Sign out of SocketFi?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { signOut() }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { }
         } message: {
-            Text("You can sign back in with your passkey anytime.")
+            Text("Sign back in with the same passkey or wallet.")
         }
-    }
-
-    private var formattedSessionExpiry: String {
-        model.session.expiresAt.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private var settingsWebURL: URL {
-        let host = model.session.account.network == .testnet ? "https://testnet.socketfi.app" : "https://socketfi.app"
-        return URL(string: "\(host)/settings")!
-    }
-
-    private var guardiansURL: URL {
-        let host = model.session.account.network == .testnet ? "https://testnet.socketfi.app" : "https://socketfi.app"
-        return URL(string: "\(host)/settings/guardians")!
-    }
-
-    private var sessionsURL: URL {
-        let host = model.session.account.network == .testnet ? "https://testnet.socketfi.app" : "https://socketfi.app"
-        return URL(string: "\(host)/settings/sessions")!
-    }
-
-    private var copiedNoticeText: String? {
-        if copiedAddress { return "Contract ID copied." }
-        if copiedUsername { return "Username copied." }
-        if copiedProject { return "Client ID copied." }
-        if copiedApplication { return "Application ID copied." }
-        if copiedRelyingParty { return "RP ID copied." }
-        return nil
-    }
-
-    private func copy(_ value: String, copied: Binding<Bool>) {
-        UIPasteboard.general.string = value
-        copied.wrappedValue = true
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            copied.wrappedValue = false
-        }
-    }
-
-    private var accountSummaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            detailRow("Contract ID", model.session.account.address, copyValue: model.session.account.address, copied: $copiedAddress)
-            Divider().padding(.vertical, 4)
-            HStack(spacing: 8) {
-                accountMetaPill("Network", value: model.networkLabel)
-                accountMetaPill("Signer", value: model.session.account.signer == .passkey ? "Passkey" : model.session.account.signer == .evmWallet ? "EVM Wallet" : "Stellar Wallet")
-            }
-            Divider().padding(.vertical, 4)
-            detailRow("Session expires", formattedSessionExpiry)
-            if let username = model.session.walletUsername {
-                Divider().padding(.vertical, 4)
-                detailRow("Username", username, copyValue: username, copied: $copiedUsername)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func detailRow(_ label: String, _ value: String, copyValue: String? = nil, copied: Binding<Bool>? = nil) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .monospaced()
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 8)
-
-            if let copyValue, let copied {
-                Button {
-                    copy(copyValue, copied: copied)
-                } label: {
-                    Image(systemName: copied.wrappedValue ? "checkmark" : "doc.on.doc")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AccessStyle.brand)
-                        .frame(width: 32, height: 32)
-                        .background(AccessStyle.background, in: Circle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func accountMetaPill(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(AccessStyle.background, in: Capsule())
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func accountCard(title: String, rows: [(String, String)], copyActions: [(String, String, Binding<Bool>)]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(rows, id: \.0) { row in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(row.0).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                        Text(row.1).font(.body.weight(.semibold)).monospaced().foregroundStyle(.primary)
-                    }
-                }
-            }
-
-            if !copyActions.isEmpty {
-                copyActionsRow(copyActions)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func copyActionsRow(_ items: [(String, String, Binding<Bool>)]) -> some View {
-        HStack {
-            ForEach(items, id: \.0) { item in
-                let label = item.0
-                let value = item.1
-                let copiedBinding = item.2
-                Button {
-                    copy(value, copied: copiedBinding)
-                } label: {
-                    Label("Copy \(label)", systemImage: copiedBinding.wrappedValue ? "checkmark" : "doc.on.doc")
-                        .font(.caption.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 38)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 4)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    @ViewBuilder
-    private func webSettingsAction(title: String, destination: URL, subtitle: String) -> some View {
-        Button {
-            openURL(destination)
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(AccessStyle.brand.opacity(0.12))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "link")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(AccessStyle.brand)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.right")
-                    .foregroundStyle(.secondary)
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
-            .background(AccessStyle.surface, in: RoundedRectangle(cornerRadius: 18))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(AccessStyle.border.opacity(0.8))
-            )
-        }
-        .buttonStyle(AccessButtonStyle())
     }
 }
 

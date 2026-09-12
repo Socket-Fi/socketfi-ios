@@ -2,6 +2,23 @@ import Foundation
 
 @MainActor
 public enum SocketFiWalletTransactions {
+    public static func addGuardian(session: SocketFiSession, guardian: String,
+                                   capabilities: SocketFiProjectCapabilities) throws -> SocketFiTransactionRequest {
+        let address = guardian.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !session.isExpired else { throw SocketFiNativeError.sessionUnavailable }
+        guard SocketFiXDR.isAddress(address), address != session.account.address else {
+            throw SocketFiNativeError.configuration("Enter a valid Stellar guardian address different from your wallet.")
+        }
+        guard capabilities.allows(network: session.account.network, contract: session.account.address,
+                                  function: "add_guardian", account: session.account.address) else {
+            throw SocketFiNativeError.configuration("Adding guardians is not enabled for this app on this network yet.")
+        }
+        return SocketFiTransactionRequest(contractID: session.account.address, functionName: "add_guardian",
+            argsXDR: [try SocketFiXDR.address(address)], review: SocketFiTransactionReview(
+                title: "Add guardian", network: session.account.network, source: session.account.address,
+                destination: address, expiresAt: Date().addingTimeInterval(120)))
+    }
+
     public static func withdrawal(session: SocketFiSession, token: SocketFiToken, recipient: String, amount: String,
                                   capabilities: SocketFiProjectCapabilities) throws -> SocketFiTransactionRequest {
         let destination = recipient.trimmingCharacters(in: .whitespacesAndNewlines)

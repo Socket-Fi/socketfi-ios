@@ -2,6 +2,165 @@ import XCTest
 
 /// Opt-in, physical TESTNET integration check. Never run against Production.
 final class SocketFiDeviceFlowTests: XCTestCase {
+    @MainActor
+    func testNativeGuardianEntryAndValidation() {
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Account"].waitForExistence(timeout: 30))
+        app.tabBars.buttons["Account"].tap()
+        app.buttons["account.guardians"].tap()
+        let field = app.textFields["guardian.address"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["guardian.review"].isEnabled)
+        field.tap(); field.typeText("invalid")
+        app.buttons["guardian.review"].tap()
+        XCTAssertTrue(app.staticTexts["Enter a valid Stellar guardian address different from your wallet."].waitForExistence(timeout: 10))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Native guardian address validation"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    @MainActor
+    func testCompactAccountSettings() {
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["Account"].waitForExistence(timeout: 30))
+        app.tabBars.buttons["Account"].tap()
+        XCTAssertTrue(app.links["account.guardians"].exists || app.buttons["account.guardians"].exists)
+        let signOut = app.buttons["account.signOut"]
+        if !signOut.isHittable { app.swipeUp() }
+        XCTAssertTrue(signOut.isHittable)
+        XCTAssertLessThan(signOut.frame.height, 60)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Compact account settings"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    /// Captures product screens without signing or submitting transactions.
+    @MainActor
+    func testCaptureWalletPromo() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 30))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: app.buttons["Withdraw"])
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 60), .completed)
+        func capture(_ name: String) {
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = name; shot.lifetime = .keepAlways; add(shot)
+        }
+        capture("Promo wallet")
+        app.buttons["Deposit"].tap()
+        XCTAssertTrue(app.images["Deposit link QR code"].waitForExistence(timeout: 10))
+        capture("Promo receive")
+        app.buttons["Done"].tap()
+    }
+
+    /// Requires the user to approve MetaMask prompts. Never approves wallet
+    /// transactions automatically and never uses a PUBLIC chain or recipient.
+    @MainActor
+    func testLiveCctpFujiDeposit() throws {
+        guard ProcessInfo.processInfo.environment["SOCKETFI_LIVE_CCTP"] == "1" else {
+            throw XCTSkip("Requires live TESTNET wallet approval and test USDC/gas")
+        }
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 30))
+        app.buttons["Deposit"].tap()
+        let entry = app.buttons["deposit.evm"]
+        if !entry.isHittable { app.swipeUp() }
+        entry.tap()
+        // Close an already confirmed deposit before starting this explicitly requested test.
+        if app.buttons["cctp.done"].waitForExistence(timeout: 5) {
+            app.buttons["cctp.done"].tap()
+            XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 10))
+            app.buttons["Deposit"].tap()
+            if !entry.isHittable { app.swipeUp() }
+            entry.tap()
+        }
+        // A preparation can be discarded only before a possible burn. The
+        // production UI omits this action when submission is uncertain.
+        if app.buttons["Cancel preparation"].waitForExistence(timeout: 3) {
+            app.buttons["Cancel preparation"].tap()
+            let cancelButtons = app.buttons.matching(identifier: "Cancel preparation")
+            cancelButtons.element(boundBy: cancelButtons.count - 1).tap()
+        }
+        XCTAssertTrue(app.textFields["cctp.amount"].waitForExistence(timeout: 35))
+        XCTAssertTrue(app.staticTexts["To your SocketFi account · TESTNET"].exists)
+        app.buttons["cctp.sourceNetwork"].tap()
+        app.buttons["cctp.network.43113"].tap()
+        app.textFields["cctp.amount"].tap()
+        app.textFields["cctp.amount"].typeText("0.1")
+        app.toolbars.buttons["Done"].tap()
+        app.swipeUp()
+        let connect = app.buttons["Connect wallet & review"]
+        if !connect.isHittable { app.swipeUp() }
+        connect.tap()
+        let metamask = app.buttons["wallet.choice.MetaMask"]
+        XCTAssertTrue(metamask.waitForExistence(timeout: 30))
+        metamask.tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let open = springboard.alerts.buttons["Open"]
+        if open.waitForExistence(timeout: 5) { open.tap() }
+        print("[SocketFiCCTPTest] stage=awaiting_user_connection_approval network=TESTNET chain=43113")
+        XCTAssertTrue(app.buttons["Approve USDC spending limit"].waitForExistence(timeout: 180), "Approve the MetaMask connection and return to SocketFi to review the deposit")
+        func capture(_ name: String) {
+            let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
+        }
+        capture("Live CCTP preparation on Avalanche Fuji")
+        app.buttons["Approve USDC spending limit"].tap()
+        print("[SocketFiCCTPTest] stage=awaiting_user_usdc_approval")
+        XCTAssertTrue(app.buttons["Confirm deposit"].waitForExistence(timeout: 240), "Requires sufficient test USDC/gas and a confirmed allowance")
+        capture("Live CCTP allowance confirmed")
+        app.buttons["Confirm deposit"].tap()
+        print("[SocketFiCCTPTest] stage=awaiting_user_burn_approval amount_usdc=0.1")
+        XCTAssertTrue(app.staticTexts["Deposit confirmed"].waitForExistence(timeout: 1800), "Success requires authoritative Stellar delivery, not just a wallet response")
+        capture("Live CCTP Stellar delivery confirmed")
+        XCTAssertFalse(app.buttons["Confirm deposit"].exists)
+        XCTAssertFalse(app.buttons["Approve USDC spending limit"].exists)
+        let done = app.buttons["cctp.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 15))
+        XCTAssertTrue(done.isHittable, "Completion must be reachable without scrolling")
+        done.tap()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Deposit confirmed"].exists)
+        app.buttons["Deposit"].tap()
+        if !entry.isHittable { app.swipeUp() }
+        entry.tap()
+        XCTAssertTrue(app.textFields["cctp.amount"].waitForExistence(timeout: 35))
+        XCTAssertFalse(app.buttons["Confirm deposit"].exists)
+        XCTAssertFalse(app.staticTexts["Deposit confirmed"].exists)
+        capture("Fresh deposit after closing confirmed result")
+    }
+    @MainActor
+    func testNativeDepositEntryAndNoInlineConfirmation() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "fi.socket.socketfi.testnet")
+        app.launch()
+        XCTAssertTrue(app.buttons["wallet.settings"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.staticTexts["Transaction confirmed"].exists)
+        app.buttons["Deposit"].tap()
+        XCTAssertTrue(app.images["Deposit link QR code"].waitForExistence(timeout: 5))
+        let receiveShot = XCTAttachment(screenshot: app.screenshot())
+        receiveShot.name = "Receive screen with visible QR"; receiveShot.lifetime = .keepAlways; add(receiveShot)
+        let evm = app.buttons["deposit.evm"]
+        if !evm.isHittable { app.swipeUp() }
+        XCTAssertTrue(evm.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.links["Deposit from Stellar"].exists || app.buttons["Deposit from Stellar"].exists)
+        evm.tap()
+        XCTAssertTrue(app.staticTexts["USDC from EVM"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["To your SocketFi account · TESTNET"].exists)
+        // No external browser is required to select/review the deposit.
+        XCTAssertTrue(app.navigationBars["Deposit from EVM"].exists)
+        XCTAssertTrue(app.textFields["cctp.amount"].waitForExistence(timeout: 130), "The signed-in app must load supported source networks from the deployed API")
+        app.buttons["cctp.sourceNetwork"].tap()
+        XCTAssertTrue(app.navigationBars["Select network"].waitForExistence(timeout: 5))
+        let fuji = app.buttons["cctp.network.43113"]
+        XCTAssertTrue(fuji.exists)
+        fuji.tap()
+        XCTAssertTrue(app.buttons["cctp.sourceNetwork"].label.contains("Avalanche Fuji"))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Native EVM deposit on Alaa"; shot.lifetime = .keepAlways; add(shot)
+    }
     /// Reviews a real funded account without signing or submitting a payment.
     @MainActor
     func testWithdrawalReviewRemainsVisible() {
@@ -196,6 +355,8 @@ final class SocketFiDeviceFlowTests: XCTestCase {
         capture("Withdrawal paste on Alaa")
         app.navigationBars.buttons["Cancel"].tap()
         app.buttons["wallet.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.guardians"].waitForExistence(timeout: 5))
+        app.buttons["settings.assets"].tap()
         XCTAssertTrue(app.textFields["asset.contract"].waitForExistence(timeout: 10))
         capture("Wallet settings on Alaa")
         app.textFields["asset.contract"].tap()

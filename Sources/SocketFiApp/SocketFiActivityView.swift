@@ -20,14 +20,10 @@ struct SocketFiActivityView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 Text("\(model.networkLabel) account activity")
                     .font(.subheadline).foregroundStyle(.secondary)
-                if let receipt = model.receipt {
+                if model.unresolved, let receipt = model.receipt {
                     ActivityReceiptCard(receipt: receipt, action: { model.acknowledgeCheckedActivity() })
                     if let hash = receipt.hash {
                         Link("View latest transaction", destination: model.transactionURL(hash))
-                    }
-                    if receipt.confirmed && !history.items.contains(where: { $0.txHash == receipt.hash }) {
-                        Text("Your latest transaction is confirmed. It may take a little longer to appear below.")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 if let error = history.error {

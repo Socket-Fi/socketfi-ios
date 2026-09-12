@@ -4,6 +4,23 @@ import SocketFiNativeKit
 
 @MainActor
 final class SocketFiWalletModelTests: XCTestCase {
+    func testClosingResultClearsSuccessButPreservesUncertainPaymentProtection() {
+        let configuration = SocketFiConfiguration(apiBaseURL: URL(string: "https://fixture.invalid")!, clientID: "fixture", applicationID: "fixture", network: .testnet, relyingPartyID: "fixture.invalid")
+        let session = SocketFiSession(account: .init(address: "CCFBZEUCDA4XT5TBSIHO6SH72P5NNQSUGFHAZTPS7YWMNXFS7KXAM5ZV", network: .testnet, signer: .passkey), accessToken: "fixture", expiresAt: Date().addingTimeInterval(60))
+        let model = SocketFiWalletModel(session: session, configuration: configuration, signer: .init(configuration: configuration))
+        model.receipt = .init(title: "Withdraw", hash: String(repeating: "a", count: 64), confirmed: true)
+        model.actionResult = model.receipt
+        model.dismissActionResult()
+        XCTAssertNil(model.receipt)
+        XCTAssertNil(model.actionResult)
+        model.unresolved = true
+        model.receipt = .init(title: "Check transaction status", hash: nil, confirmed: false)
+        model.actionResult = model.receipt
+        model.dismissActionResult()
+        XCTAssertNil(model.actionResult)
+        XCTAssertTrue(model.unresolved)
+        XCTAssertNotNil(model.receipt)
+    }
     func testCompletedReviewCannotStartAnotherApproval() async {
         let configuration = SocketFiConfiguration(apiBaseURL: URL(string: "https://fixture.invalid")!, clientID: "fixture", applicationID: "fixture", network: .testnet, relyingPartyID: "fixture.invalid")
         let address = "CCFBZEUCDA4XT5TBSIHO6SH72P5NNQSUGFHAZTPS7YWMNXFS7KXAM5ZV"

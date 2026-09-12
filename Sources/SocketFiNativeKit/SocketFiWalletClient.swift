@@ -67,13 +67,17 @@ public struct SocketFiProjectCapabilities: Decodable, Sendable {
     public let networks: [SocketFiNetwork]
     public let allowedInvocations: [Invocation]
 
-    public func allows(network: SocketFiNetwork, contract: String, function: String) -> Bool {
+    public func allows(network: SocketFiNetwork, contract: String, function: String, account: String? = nil) -> Bool {
         let normalizedContract = contract.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let normalizedFunction = function.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return networks.contains(network) && allowedInvocations.contains {
             guard $0.network == network, $0.functions.contains(normalizedFunction) else { return false }
             let ruleContract = $0.contractId.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if ruleContract == "$ACCOUNT" {
+                return normalizedFunction == "add_guardian" && $0.functions == ["add_guardian"] &&
+                    account == normalizedContract && SocketFiXDR.isAddress(normalizedContract, contractOnly: true)
+            }
             if ruleContract == "*" {
                 return normalizedFunction == "transfer" && $0.functions == ["transfer"] &&
                     SocketFiXDR.isAddress(normalizedContract, contractOnly: true)
