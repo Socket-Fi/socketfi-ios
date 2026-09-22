@@ -258,6 +258,12 @@ struct SocketFiCctpDepositView: View {
             case .approved: primary("Confirm deposit", action: model.deposit)
             case .approvalRequested, .burnRequested, .tracking:
                 primary("Refresh status") { Task { await model.refresh() } }
+            case .failed, .expired:
+                if pending.burnMayHaveBeenSent {
+                    primary("Refresh status") { Task { await model.refresh() } }
+                } else {
+                    primary("Retry preparation", action: model.retryPreparation)
+                }
             case .complete:
                 primary("Done") { if model.finish() { onComplete() } }
                     .accessibilityIdentifier("cctp.done")
@@ -277,7 +283,8 @@ struct SocketFiCctpDepositView: View {
     }
     private func statusTitle(_ pending: SocketFiCctpPending) -> String {
         if pending.phase == .complete { return "Deposit confirmed" }
-        if ["FAILED_FINAL", "EXPIRED", "SUPERSEDED"].contains(pending.status ?? "") { return "Deposit needs attention" }
+        if pending.phase == .expired || pending.status == "EXPIRED" { return "Deposit expired" }
+        if pending.phase == .failed || ["FAILED_FINAL", "SUPERSEDED"].contains(pending.status ?? "") { return "Deposit failed" }
         switch pending.phase {
         case .draft: return "Preparing deposit"
         case .review: return "1. Approve USDC"
@@ -289,8 +296,13 @@ struct SocketFiCctpDepositView: View {
     }
     private func statusMessage(_ pending: SocketFiCctpPending) -> String {
         if pending.phase == .complete { return "The Stellar network confirmed delivery to your SocketFi account." }
-        if ["FAILED_FINAL", "EXPIRED", "SUPERSEDED"].contains(pending.status ?? "") {
-            return "Check this deposit in SocketFi’s explorer. Do not repeat a burn that was already approved; its funds may still need settlement."
+        if pending.phase == .expired || pending.status == "EXPIRED" {
+            return "This preparation expired before settlement. Start a new deposit; no new burn will be submitted from this record."
+        }
+        if pending.phase == .failed || ["FAILED_FINAL", "SUPERSEDED"].contains(pending.status ?? "") {
+            return pending.burnMayHaveBeenSent
+                ? "The bridge reported a final failure. Check the explorer before retrying; do not submit another burn for the same deposit."
+                : "No burn was confirmed for this deposit. You can retry preparation."
         }
         switch pending.phase {
         case .draft: return "No transaction has been sent. Retry uses the same deposit identifier."
@@ -298,6 +310,7 @@ struct SocketFiCctpDepositView: View {
         case .approvalRequested: return "Check your funding wallet and refresh. SocketFi will not resend the approval automatically."
         case .approved: return "Spending approved. Confirm the deposit transaction in your wallet next."
         case .burnRequested: return "The wallet may have submitted your deposit. SocketFi is checking; it will not send another burn. You can close this screen and return later."
+        case .failed, .expired: return "Review the status above before continuing."
         default: return "Your deposit is on its way. You can close this screen and track it later."
         }
     }

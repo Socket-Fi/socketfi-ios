@@ -12,7 +12,7 @@ protocol SocketFiCctpFunding {
 extension SocketFiWalletConnect: SocketFiCctpFunding {}
 
 struct SocketFiCctpPending: Codable {
-    enum Phase: String, Codable { case draft, review, approvalRequested, approved, burnRequested, tracking, complete }
+    enum Phase: String, Codable { case draft, review, approvalRequested, approved, burnRequested, tracking, complete, failed, expired }
     let chain: SocketFiCctpChain
     let sender: String
     var topic: String
@@ -26,7 +26,10 @@ struct SocketFiCctpPending: Codable {
     var burnHash: String?
     var stellarHash: String?
     var status: String?
-    var burnMayHaveBeenSent: Bool { [.burnRequested, .tracking, .complete].contains(phase) }
+    var burnMayHaveBeenSent: Bool {
+        [.burnRequested, .tracking, .complete].contains(phase) ||
+        (phase == .failed && burnHash != nil)
+    }
 }
 
 @MainActor
@@ -222,6 +225,8 @@ final class SocketFiCctpDepositModel: ObservableObject {
         updated.burnHash = status.burnTxHash ?? saved.burnHash
         updated.stellarHash = status.stellarTxHash
         if status.status == "SUCCESS" { updated.phase = .complete }
+        else if status.status == "EXPIRED" { updated.phase = .expired }
+        else if ["FAILED", "FAILED_FINAL", "SUPERSEDED"].contains(status.status) { updated.phase = .failed }
         else if status.burnTxHash != nil { updated.phase = .tracking }
         try save(updated)
     }
